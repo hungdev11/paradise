@@ -121,6 +121,317 @@ const THEME_COLORS = [
   { name: 'Bạch Y', hex: '#f8fafc' },
 ];
 
+function drawTempleInterior(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  player: { x: number; y: number; vx: number; vy: number; facing: 1 | -1 },
+  profile: LocalProfile,
+  templeName: string,
+  time: number,
+  walkCycle: number,
+  mokugyoHits: number,
+  floatingTexts: FloatingText[]
+) {
+  // 1. Interior Wall & Floor
+  ctx.fillStyle = '#17110e';
+  ctx.fillRect(0, 0, width, height);
+
+  // Lotus ceramic floor tiles
+  const floorY = 160;
+  ctx.fillStyle = '#261b16';
+  ctx.fillRect(0, floorY, width, height - floorY);
+
+  // Red velvet ceremonial runner carpet
+  const carpetW = 220;
+  const carpetX = width / 2 - carpetW / 2;
+  ctx.fillStyle = '#7f1d1d';
+  ctx.fillRect(carpetX, floorY, carpetW, height - floorY);
+  ctx.strokeStyle = '#d97706';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(carpetX, floorY, carpetW, height - floorY);
+
+  // Carpet gold borders
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(carpetX + 12, floorY);
+  ctx.lineTo(carpetX + 12, height);
+  ctx.moveTo(carpetX + carpetW - 12, floorY);
+  ctx.lineTo(carpetX + carpetW - 12, height);
+  ctx.stroke();
+
+  // 2. Temple Wooden Pillars
+  ctx.fillStyle = '#451a03';
+  for (let px = 60; px < width; px += 240) {
+    ctx.fillRect(px, 0, 22, height);
+  }
+
+  // 3. Grand Altar (Bàn thờ Phật dát vàng nguy nga)
+  const altarX = width / 2;
+  const altarY = 170;
+
+  // Altar radiance halo
+  const haloGrad = ctx.createRadialGradient(altarX, altarY - 45, 20, altarX, altarY - 45, 140);
+  haloGrad.addColorStop(0, 'rgba(251, 191, 36, 0.55)');
+  haloGrad.addColorStop(0.5, 'rgba(245, 158, 11, 0.25)');
+  haloGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+  ctx.fillStyle = haloGrad;
+  ctx.beginPath();
+  ctx.arc(altarX, altarY - 45, 140, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Multi-tier Golden Lotus Pedestal
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(altarX - 160, altarY + 20, 320, 45);
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(altarX - 160, altarY + 20, 320, 45);
+
+  // Lotus Petals
+  ctx.fillStyle = '#f59e0b';
+  for (let a = 0; a < Math.PI; a += Math.PI / 8) {
+    const lx = altarX + Math.cos(a + Math.PI) * 110;
+    const ly = altarY + 15 + Math.sin(a + Math.PI) * 20;
+    ctx.beginPath();
+    ctx.arc(lx, ly, 14, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Golden Sakyamuni Buddha
+  ctx.fillStyle = '#d97706';
+  ctx.beginPath();
+  ctx.ellipse(altarX, altarY - 10, 52, 35, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Robe
+  ctx.fillStyle = '#b45309';
+  ctx.beginPath();
+  ctx.moveTo(altarX - 28, altarY - 8);
+  ctx.lineTo(altarX - 20, altarY - 60);
+  ctx.lineTo(altarX + 20, altarY - 60);
+  ctx.lineTo(altarX + 28, altarY - 8);
+  ctx.closePath();
+  ctx.fill();
+  // Head
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath();
+  ctx.arc(altarX, altarY - 72, 24, 0, Math.PI * 2);
+  ctx.fill();
+  // Ushnisha
+  ctx.beginPath();
+  ctx.arc(altarX, altarY - 98, 9, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Temple Plaque (Hoành phi câu đối)
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(altarX - 150, 35, 300, 36);
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(altarX - 150, 35, 300, 36);
+  ctx.font = 'bold 15px serif';
+  ctx.fillStyle = '#fef08a';
+  ctx.textAlign = 'center';
+  ctx.fillText(templeName.toUpperCase(), altarX, 58);
+
+  // Giant Bronze Incense Cauldron in front of Altar
+  ctx.fillStyle = '#292524';
+  ctx.beginPath();
+  ctx.ellipse(altarX, altarY + 68, 38, 20, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#d97706';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Incense Smoke curls
+  ctx.strokeStyle = 'rgba(254, 243, 199, 0.45)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(altarX - 5, altarY + 60);
+  ctx.bezierCurveTo(altarX - 25, altarY + 20, altarX + 15, altarY - 20, altarX - 5, altarY - 60);
+  ctx.stroke();
+
+  // 4. Candle Stands & Lanterns
+  const candles = [
+    { x: altarX - 200, y: altarY + 30 },
+    { x: altarX + 200, y: altarY + 30 },
+  ];
+  for (const c of candles) {
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(c.x - 6, c.y - 30, 12, 60);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(c.x - 8, c.y - 50, 16, 22);
+    // Candle flame
+    const flameFlicker = Math.sin(time * 0.01 + c.x) * 3;
+    const flameGrad = ctx.createRadialGradient(c.x, c.y - 58 + flameFlicker, 2, c.x, c.y - 58, 24);
+    flameGrad.addColorStop(0, 'rgba(251, 191, 36, 0.9)');
+    flameGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+    ctx.fillStyle = flameGrad;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y - 58, 24, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 5. Giant Interactive Wooden Fish (Mõ Gỗ Nội Điện) at Center
+  const mokugyoX = width / 2;
+  const mokugyoY = 380;
+
+  // Cushion under Mokugyo
+  ctx.fillStyle = '#991b1b';
+  ctx.beginPath();
+  ctx.ellipse(mokugyoX, mokugyoY + 22, 55, 26, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Carved wooden fish body
+  ctx.fillStyle = '#78350f';
+  ctx.beginPath();
+  ctx.ellipse(mokugyoX, mokugyoY, 44, 32, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Fish slit carving
+  ctx.fillStyle = '#292524';
+  ctx.beginPath();
+  ctx.ellipse(mokugyoX + 10, mokugyoY, 18, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.font = '28px serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🪵', mokugyoX - 10, mokugyoY + 9);
+
+  // Label badge for Mokugyo
+  ctx.font = 'bold 11px system-ui';
+  ctx.fillStyle = '#fef08a';
+  ctx.fillText('MÕ GỖ NỘI ĐIỆN (Space / Bấm để gõ)', mokugyoX, mokugyoY + 56);
+  if (mokugyoHits > 0) {
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#86efac';
+    ctx.fillText(`✨ Đã gõ: ${mokugyoHits} lần (+${mokugyoHits} Công Đức)`, mokugyoX, mokugyoY + 70);
+  }
+
+  // 6. Prayer Cushions on left and right
+  const prayerMats = [
+    { x: altarX - 120, y: 480 },
+    { x: altarX + 120, y: 480 },
+  ];
+  for (const m of prayerMats) {
+    ctx.fillStyle = '#991b1b';
+    ctx.beginPath();
+    ctx.ellipse(m.x, m.y, 35, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.font = '14px serif';
+    ctx.fillStyle = '#fef08a';
+    ctx.fillText('🪷', m.x, m.y + 4);
+  }
+
+  // 7. Exit Doorway at bottom center
+  const doorX = width / 2;
+  const doorY = height - 40;
+  ctx.fillStyle = '#450a0a';
+  ctx.fillRect(doorX - 60, doorY - 30, 120, 50);
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(doorX - 60, doorY - 30, 120, 50);
+  ctx.font = 'bold 11px system-ui';
+  ctx.fillStyle = '#fef08a';
+  ctx.fillText('🚪 CỬA RA SÂN CHÙA [E]', doorX, doorY);
+
+  // 8. Draw Player Stickman in Interior
+  const isMoving = Math.abs(player.vx) > 0.05 || Math.abs(player.vy) > 0.05;
+  const isPraying = player.y > 450 && player.y < 510 && Math.abs(player.x - width / 2) < 160;
+
+  // Player shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(player.x, player.y + 2, 16, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Aura if praying on mats
+  if (isPraying) {
+    const auraPulse = Math.sin(time * 0.005) * 6;
+    const auraGrad = ctx.createRadialGradient(player.x, player.y - 30, 8, player.x, player.y - 30, 48 + auraPulse);
+    auraGrad.addColorStop(0, 'rgba(251, 191, 36, 0.6)');
+    auraGrad.addColorStop(0.7, 'rgba(245, 158, 11, 0.2)');
+    auraGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+    ctx.fillStyle = auraGrad;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y - 30, 48 + auraPulse, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Stickman lines
+  ctx.strokeStyle = profile.color || '#f59e0b';
+  ctx.lineWidth = 3.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const neckY = player.y - 34;
+  const pelvisY = player.y - 18;
+
+  ctx.beginPath();
+  ctx.moveTo(player.x, neckY);
+  ctx.lineTo(player.x, pelvisY);
+  ctx.stroke();
+
+  // Legs
+  const legPhase = isMoving ? Math.sin(walkCycle) * 12 : 0;
+  ctx.beginPath();
+  ctx.moveTo(player.x, pelvisY);
+  ctx.lineTo(player.x + legPhase * player.facing, player.y);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(player.x, pelvisY);
+  ctx.lineTo(player.x - legPhase * player.facing, player.y);
+  ctx.stroke();
+
+  // Arms
+  if (isPraying) {
+    ctx.beginPath();
+    ctx.moveTo(player.x, neckY + 4);
+    ctx.lineTo(player.x + player.facing * 9, neckY + 10);
+    ctx.lineTo(player.x + player.facing * 7, neckY + 6);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(player.x, neckY + 4);
+    ctx.lineTo(player.x + player.facing * 11, neckY + 16);
+    ctx.stroke();
+  }
+
+  // Head
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(player.x, player.y - 48, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = profile.color || '#f59e0b';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Avatar emoji
+  ctx.font = '15px serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(profile.avatar || '🧘', player.x, player.y - 43);
+
+  // Name Tag
+  ctx.font = 'bold 11px system-ui';
+  ctx.fillStyle = '#fef08a';
+  ctx.fillText(profile.name, player.x, player.y - 68);
+
+  // Floating text inside temple
+  for (const ft of floatingTexts) {
+    ctx.font = 'bold 12px serif';
+    ctx.fillStyle = ft.color;
+    ctx.fillText(ft.text, ft.x, ft.y);
+  }
+}
+
 export const ZenPlaza: React.FC = () => {
   const [profile, setProfile] = useState<LocalProfile>(plazaService.getProfile());
   const [onlineCount, setOnlineCount] = useState<number>(1);
@@ -161,23 +472,41 @@ export const ZenPlaza: React.FC = () => {
   const [editColor, setEditColor] = useState(profile.color);
   const [editHat, setEditHat] = useState(profile.hat);
 
+  // Temple & Fish Release States
+  const [currentScene, setCurrentScene] = useState<'plaza' | 'temple_interior'>('plaza');
+  const [activeTemple, setActiveTemple] = useState<TempleDoorTrigger | null>(null);
+  const [nearbyDoor, setNearbyDoor] = useState<TempleDoorTrigger | null>(null);
+  const [nearbyLake, setNearbyLake] = useState<{ id: 'lotus_pond' | 'liberation_pond'; name: string; x: number; y: number; radiusX: number; radiusY: number } | null>(null);
+  const [showFishModal, setShowFishModal] = useState<boolean>(false);
+  const [indoorMokugyoHits, setIndoorMokugyoHits] = useState<number>(0);
+
   // Canvas & Game Loop Refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef<number>(0);
 
   // Camera tracking in world coordinates
-  const cameraRef = useRef<{ x: number; y: number }>({ x: 500, y: 350 });
+  const cameraRef = useRef<{ x: number; y: number }>({ x: 1800 - 500, y: 1100 - 350 });
 
   // Visual Players Map (Decoupled from React render loop for 60fps silky smooth movement)
   const visualPlayersRef = useRef<Map<string, VisualEntity>>(new Map());
   const visualOrbsRef = useRef<Map<string, MeritOrb>>(new Map());
   const floatingTextsRef = useRef<FloatingText[]>([]);
   const clashEffectsRef = useRef<CombatClashEffect[]>([]);
+  const activeFishesRef = useRef<ActiveFishEntity[]>([]);
+  const splashRipplesRef = useRef<{ x: number; y: number; radius: number; maxRadius: number; alpha: number; color: string }[]>([]);
 
   const localPosRef = useRef<{ x: number; y: number; vx: number; vy: number; facing: 1 | -1 }>({
-    x: 1000,
-    y: 680,
+    x: 1800,
+    y: 1100,
+    vx: 0,
+    vy: 0,
+    facing: 1,
+  });
+
+  const indoorPosRef = useRef<{ x: number; y: number; vx: number; vy: number; facing: 1 | -1 }>({
+    x: 600,
+    y: 540,
     vx: 0,
     vy: 0,
     facing: 1,
@@ -209,7 +538,7 @@ export const ZenPlaza: React.FC = () => {
 
   // Connect to Plaza Service and setup multiplayer network events
   useEffect(() => {
-    plazaService.connect(1000, 680);
+    plazaService.connect(1800, 1100);
 
     // Initial setup for local visual player
     const myProfile = plazaService.getProfile();
@@ -221,10 +550,10 @@ export const ZenPlaza: React.FC = () => {
       color: myProfile.color,
       hat: myProfile.hat,
       weapon: myProfile.weapon || null,
-      currentX: 1000,
-      currentY: 680,
-      targetX: 1000,
-      targetY: 680,
+      currentX: 1800,
+      currentY: 1100,
+      targetX: 1800,
+      targetY: 1100,
       vx: 0,
       vy: 0,
       facing: 1,
@@ -242,6 +571,31 @@ export const ZenPlaza: React.FC = () => {
     for (const orb of currentOrbs) {
       visualOrbsRef.current.set(orb.id, orb);
     }
+
+    // Initialize swimming fish in the 2 sacred ponds (7 in each pond)
+    const initialFishes: ActiveFishEntity[] = [];
+    LAKES.forEach((lake) => {
+      for (let i = 0; i < 7; i++) {
+        const spec = FISH_CATALOG[i % FISH_CATALOG.length];
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * 0.7;
+        initialFishes.push({
+          id: `fish_${lake.id}_${i}`,
+          type: spec.id,
+          lakeId: lake.id,
+          x: lake.x + Math.cos(angle) * (lake.radiusX * dist),
+          y: lake.y + Math.sin(angle) * (lake.radiusY * dist),
+          vx: (Math.random() - 0.5) * spec.speed,
+          vy: (Math.random() - 0.5) * spec.speed,
+          angle: Math.random() * Math.PI * 2,
+          color: spec.color,
+          size: spec.size,
+          tailPhase: Math.random() * Math.PI * 2,
+          releasedBy: 'Chùa Tâm An',
+        });
+      }
+    });
+    activeFishesRef.current = initialFishes;
 
     // Initialize 35 gentle floating sakura petals
     petalsRef.current = Array.from({ length: 35 }, () => ({
@@ -538,6 +892,48 @@ export const ZenPlaza: React.FC = () => {
       });
     });
 
+    // 12. Fish Released Event from Network
+    const unsubFish = plazaService.onFishReleased((f) => {
+      const spec = FISH_CATALOG.find((s) => s.id === f.fishType) || FISH_CATALOG[0];
+      const lake = LAKES.find((l) => l.id === f.lakeId) || LAKES[0];
+      const newFish: ActiveFishEntity = {
+        id: f.id,
+        type: f.fishType,
+        lakeId: f.lakeId,
+        x: f.x || lake.x,
+        y: f.y || lake.y,
+        vx: (Math.random() - 0.5) * spec.speed,
+        vy: (Math.random() - 0.5) * spec.speed,
+        angle: Math.random() * Math.PI * 2,
+        color: spec.color,
+        size: spec.size,
+        tailPhase: 0,
+        releasedBy: f.releasedBy,
+      };
+      activeFishesRef.current.push(newFish);
+
+      // Water splash ripple effect
+      splashRipplesRef.current.push({
+        x: newFish.x,
+        y: newFish.y,
+        radius: 12,
+        maxRadius: 65,
+        alpha: 1,
+        color: spec.color,
+      });
+
+      // Floating celebration text
+      floatingTextsRef.current.push({
+        id: `ft_fish_${Date.now()}_${Math.random()}`,
+        x: newFish.x,
+        y: newFish.y - 20,
+        text: `✨ ${f.releasedBy} Phóng Sinh ${spec.name}!`,
+        color: '#67e8f9',
+        alpha: 1,
+      });
+      audioEngine.playTempleBell();
+    });
+
     return () => {
       unsubMove();
       unsubAction();
@@ -550,6 +946,7 @@ export const ZenPlaza: React.FC = () => {
       unsubDeclined();
       unsubStarted();
       unsubTapped();
+      unsubFish();
       plazaService.disconnect();
     };
   }, []);
@@ -807,6 +1204,70 @@ export const ZenPlaza: React.FC = () => {
     if (sent) setChatInput('');
   };
 
+  // Enter Temple Interior
+  const handleEnterTemple = useCallback((door: TempleDoorTrigger) => {
+    setActiveTemple(door);
+    setCurrentScene('temple_interior');
+    indoorPosRef.current = { x: 600, y: 540, vx: 0, vy: 0, facing: 1 };
+    targetClickRef.current = null;
+    audioEngine.playTempleBell();
+  }, []);
+
+  // Exit Temple Interior
+  const handleExitTemple = useCallback(() => {
+    if (activeTemple) {
+      localPosRef.current.x = activeTemple.returnX;
+      localPosRef.current.y = activeTemple.returnY;
+      localPosRef.current.vx = 0;
+      localPosRef.current.vy = 0;
+      targetClickRef.current = null;
+    }
+    setCurrentScene('plaza');
+    audioEngine.playWoodenFish();
+  }, [activeTemple]);
+
+  // Release Fish at lake
+  const handleReleaseFish = useCallback((fish: FishSpec) => {
+    if (!nearbyLake) return;
+    if (localMerits < fish.cost) {
+      alert(`Bạn cần tối thiểu ${fish.cost} Công Đức để phóng sinh ${fish.name}!`);
+      return;
+    }
+
+    const angle = Math.random() * Math.PI * 2;
+    const spawnX = nearbyLake.x + Math.cos(angle) * (nearbyLake.radiusX * 0.85);
+    const spawnY = nearbyLake.y + Math.sin(angle) * (nearbyLake.radiusY * 0.85);
+
+    const success = plazaService.releaseFish(fish.id, fish.cost, nearbyLake.id, spawnX, spawnY);
+    if (success) {
+      setLocalMerits((prev) => prev - fish.cost);
+      setShowFishModal(false);
+      audioEngine.playTempleBell();
+      plazaService.sendChat(`🙏 Nam Mô A Di Đà Phật! Đã phóng sinh ${fish.name}!`);
+    }
+  }, [nearbyLake, localMerits]);
+
+  // Tap Indoor Mokugyo inside Chánh Điện
+  const handleTapIndoorMokugyo = useCallback(() => {
+    audioEngine.playWoodenFish(false);
+    setIndoorMokugyoHits((h) => h + 1);
+    setLocalMerits((m) => {
+      const next = m + 1;
+      const p = plazaService.getProfile();
+      p.merits = next;
+      try { localStorage.setItem('zen_plaza_profile_v1', JSON.stringify(p)); } catch {}
+      return next;
+    });
+    floatingTextsRef.current.push({
+      id: `ft_indoor_${Date.now()}_${Math.random()}`,
+      x: 600,
+      y: 350,
+      text: '+1 Công Đức 🙏 (Gõ Mõ Chánh Điện)',
+      color: '#fde047',
+      alpha: 1,
+    });
+  }, []);
+
   // Keyboard navigation listeners (Supports Key L for combat and duel tapping)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -823,12 +1284,38 @@ export const ZenPlaza: React.FC = () => {
         }
       }
 
+      // Inside Temple Interior: Space or L taps giant indoor Mokugyo
+      if (currentScene === 'temple_interior' && (e.code === 'Space' || e.code === 'KeyL' || e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        handleTapIndoorMokugyo();
+        return;
+      }
+
+      // Key E: Enter / Exit Temple Doorway
+      if (e.code === 'KeyE' || e.key === 'e' || e.key === 'E') {
+        if (currentScene === 'plaza' && nearbyDoor) {
+          handleEnterTemple(nearbyDoor);
+          return;
+        } else if (currentScene === 'temple_interior') {
+          handleExitTemple();
+          return;
+        }
+      }
+
+      // Key F: Open Fish Release Modal when near a lake
+      if (e.code === 'KeyF' || e.key === 'f' || e.key === 'F') {
+        if (currentScene === 'plaza' && nearbyLake) {
+          setShowFishModal(true);
+          return;
+        }
+      }
+
       if (e.key === '1') triggerAction('pray');
       if (e.key === '2') triggerAction('bow');
       if (e.key === '3') triggerAction('tap_fish');
       if (e.key === '4') triggerAction(activeAction === 'sit' ? 'idle' : 'sit');
 
-      // Key L: Trigger 1v1 Combat Invite with nearby opponent (switched from F to L)
+      // Key L: Trigger 1v1 Combat Invite with nearby opponent
       if (e.code === 'KeyL' || e.key === 'l' || e.key === 'L') {
         if (nearbyOpponent && !nearbyOpponent.isDefeated && !pendingInviteTarget) {
           handleInitiateCombat(nearbyOpponent.id);
@@ -846,7 +1333,21 @@ export const ZenPlaza: React.FC = () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [triggerAction, activeAction, nearbyOpponent, activeDuel, duelResult, handleDuelTap, pendingInviteTarget]);
+  }, [
+    triggerAction,
+    activeAction,
+    nearbyOpponent,
+    activeDuel,
+    duelResult,
+    handleDuelTap,
+    pendingInviteTarget,
+    currentScene,
+    nearbyDoor,
+    nearbyLake,
+    handleEnterTemple,
+    handleExitTemple,
+    handleTapIndoorMokugyo
+  ]);
 
   // Click on Canvas to Walk or Challenge Player to Combat
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -860,6 +1361,24 @@ export const ZenPlaza: React.FC = () => {
     // Screen click position
     const screenX = (e.clientX - rect.left) * scaleX;
     const screenY = (e.clientY - rect.top) * scaleY;
+
+    // Interior scene handling
+    if (currentScene === 'temple_interior') {
+      const clickDistToMokugyo = Math.hypot(screenX - 600, screenY - 380);
+      if (clickDistToMokugyo < 55) {
+        handleTapIndoorMokugyo();
+        return;
+      }
+      if (Math.hypot(screenX - 600, screenY - 600) < 55) {
+        handleExitTemple();
+        return;
+      }
+      const clampedX = Math.max(120, Math.min(1080, screenX));
+      const clampedY = Math.max(200, Math.min(620, screenY));
+      targetClickRef.current = { x: clampedX, y: clampedY };
+      clickRipplesRef.current.push({ x: clampedX, y: clampedY, radius: 4, alpha: 1.0 });
+      return;
+    }
 
     // Convert Screen Coords -> World Coords using Camera offset!
     const worldX = screenX + cameraRef.current.x;

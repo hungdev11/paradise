@@ -1,19 +1,21 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { CHANT_TRACKS, AMBIENT_TRACKS } from '../data/presets';
 import { audioEngine } from '../services/audio-engine';
-import { 
-  Volume2, 
-  VolumeX, 
-  Play, 
-  Pause, 
-  Radio, 
-  CloudRain, 
-  Waves, 
-  BellRing, 
+import {
+  Volume2,
+  VolumeX,
+  Play,
+  Pause,
+  Radio,
+  CloudRain,
+  Waves,
+  BellRing,
   Sparkles,
   X,
   Upload,
-  Square
+  Square,
+  Search,
+  Music
 } from 'lucide-react';
 
 interface AudioPlayerProps {
@@ -21,9 +23,21 @@ interface AudioPlayerProps {
   onClose: () => void;
 }
 
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => {
   const [isPlayingChant, setIsPlayingChant] = useState(false);
   const [currentChantId, setCurrentChantId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Audio track progress
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   const [isPlayingAmbient, setIsPlayingAmbient] = useState(false);
   const [currentAmbientId, setCurrentAmbientId] = useState<string | null>(null);
@@ -36,6 +50,37 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
 
   const [customAudioName, setCustomAudioName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Monitor audio element time updates
+  useEffect(() => {
+    const audioEl = audioEngine.getAudioElement();
+    if (!audioEl) return;
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(audioEl.currentTime || 0);
+      setDuration(audioEl.duration || 0);
+    };
+
+    const handleLoadedMetadata = () => {
+      setDuration(audioEl.duration || 0);
+    };
+
+    const handleEnded = () => {
+      if (!audioEl.loop) {
+        setIsPlayingChant(false);
+      }
+    };
+
+    audioEl.addEventListener('timeupdate', handleTimeUpdate);
+    audioEl.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audioEl.addEventListener('ended', handleEnded);
+
+    return () => {
+      audioEl.removeEventListener('timeupdate', handleTimeUpdate);
+      audioEl.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audioEl.removeEventListener('ended', handleEnded);
+    };
+  }, [isPlayingChant, currentChantId]);
 
   // Chant Play / Pause / Toggle-off
   const toggleChant = (trackId: string) => {
@@ -50,7 +95,11 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
     } else {
       // Switch or Start
       setCurrentChantId(trackId);
-      audioEngine.startChant(track.synthType as any);
+      if (track.src) {
+        audioEngine.playChantUrl(track.src);
+      } else if (track.synthType) {
+        audioEngine.startChant(track.synthType as any);
+      }
       setIsPlayingChant(true);
       setCustomAudioName(null);
     }
@@ -61,6 +110,14 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
     setIsPlayingChant(false);
     setCurrentChantId(null);
     setCustomAudioName(null);
+    setCurrentTime(0);
+    setDuration(0);
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const seekSecs = parseFloat(e.target.value);
+    setCurrentTime(seekSecs);
+    audioEngine.seekChant(seekSecs);
   };
 
   // Ambient Play / Pause / Toggle-off
@@ -69,12 +126,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
     if (!track) return;
 
     if (isPlayingAmbient && currentAmbientId === trackId) {
-      // Toggle OFF: Stop playing
       audioEngine.stopAmbient();
       setIsPlayingAmbient(false);
       setCurrentAmbientId(null);
     } else {
-      // Switch or Start
       setCurrentAmbientId(trackId);
       audioEngine.startAmbient(track.synthType as any);
       setIsPlayingAmbient(true);
@@ -116,10 +171,17 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
     }
   };
 
+  const filteredTracks = CHANT_TRACKS.filter((t) =>
+    t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    t.description.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const activeTrack = CHANT_TRACKS.find((t) => t.id === currentChantId);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full sm:w-[420px] zen-glass p-6 z-50 flex flex-col justify-between overflow-y-auto shadow-2xl border-l border-amber-500/30 animate-in slide-in-from-right duration-300">
+    <div className="fixed inset-y-0 right-0 w-full sm:w-[460px] zen-glass p-6 z-50 flex flex-col justify-between overflow-y-auto shadow-2xl border-l border-amber-500/30 animate-in slide-in-from-right duration-300">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-stone-800">
@@ -129,7 +191,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
             </div>
             <div>
               <h3 className="font-serif font-semibold text-lg text-amber-100">Âm Thanh & Tụng Kinh</h3>
-              <p className="text-xs text-stone-400">Nhạc tụng chánh niệm & Hòa âm thiên nhiên</p>
+              <p className="text-xs text-stone-400">20 Bản Kinh Tụng Tự Viện & Âm Thanh Thiền Định</p>
             </div>
           </div>
           <button
@@ -171,29 +233,74 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
           />
         </div>
 
+        {/* Now Playing Mini Player */}
+        {isPlayingChant && (
+          <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2.5 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Music className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-amber-200 truncate">
+                    {customAudioName ? `File riêng: ${customAudioName}` : (activeTrack?.title || 'Đang phát')}
+                  </p>
+                  <p className="text-[10px] text-stone-400 truncate">
+                    {activeTrack?.description || 'Tụng kinh thanh tịnh'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={stopChant}
+                className="flex items-center gap-1 px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white text-xs border border-stone-700 transition-colors shrink-0"
+              >
+                <Square className="w-3 h-3 fill-current" />
+                <span>Dừng</span>
+              </button>
+            </div>
+
+            {duration > 0 && (
+              <div className="space-y-1">
+                <input
+                  type="range"
+                  min="0"
+                  max={duration || 100}
+                  value={currentTime}
+                  onChange={handleSeek}
+                  className="w-full accent-amber-400 h-1 bg-stone-800 rounded cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] font-mono text-stone-400">
+                  <span>{formatTime(currentTime)}</span>
+                  <span>{formatTime(duration)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Chanting Tracks Section */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <div>
-              <label className="text-xs font-semibold text-amber-300 tracking-wider uppercase">
-                Nhạc Tụng Kinh & Thần Chú
-              </label>
-              <p className="text-[11px] text-stone-400 mt-0.5">Nhấp vào bài đang phát để tắt/bỏ chọn</p>
-            </div>
-            {isPlayingChant && (
-              <button
-                onClick={stopChant}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 text-red-300 text-xs transition-colors"
-                title="Dừng phát toàn bộ nhạc tụng"
-              >
-                <Square className="w-3 h-3 fill-current" />
-                <span>Tắt Nhạc</span>
-              </button>
-            )}
+            <label className="text-xs font-semibold text-amber-300 tracking-wider uppercase">
+              Tủ Kinh Điển & Niệm Phật (20 Bài)
+            </label>
+            <span className="text-[11px] text-stone-400 font-mono">
+              {filteredTracks.length} / {CHANT_TRACKS.length}
+            </span>
           </div>
 
-          <div className="space-y-2">
-            {CHANT_TRACKS.map((track) => {
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input
+              type="text"
+              placeholder="Tìm bài kinh, chú, niệm Phật..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-stone-900/60 border border-stone-800 focus:border-amber-500/50 rounded-xl text-stone-200 placeholder:text-stone-500 outline-none"
+            />
+          </div>
+
+          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+            {filteredTracks.map((track) => {
               const isSelected = currentChantId === track.id;
               const isCurrentPlaying = isSelected && isPlayingChant;
 
@@ -201,7 +308,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
                 <div
                   key={track.id}
                   onClick={() => toggleChant(track.id)}
-                  className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
+                  className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
                     isCurrentPlaying
                       ? 'bg-amber-500/20 border-amber-400 shadow-md shadow-amber-500/20'
                       : 'bg-stone-900/40 border-stone-800 hover:border-stone-700'
@@ -209,29 +316,29 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h5 className={`font-serif text-sm font-medium truncate ${isCurrentPlaying ? 'text-amber-200' : 'text-stone-200'}`}>
+                      <h5 className={`font-serif text-xs font-medium truncate ${isCurrentPlaying ? 'text-amber-200' : 'text-stone-200'}`}>
                         {track.title}
                       </h5>
                       {isCurrentPlaying && (
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500 text-stone-950 font-bold">
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500 text-stone-950 font-bold">
                           ĐANG PHÁT
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-stone-400 truncate mt-0.5">{track.description}</p>
+                    <p className="text-[10px] text-stone-400 truncate mt-0.5">{track.description}</p>
                   </div>
 
                   <button
-                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border transition-all ${
+                    className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 border transition-all ${
                       isCurrentPlaying
                         ? 'bg-amber-500 text-stone-950 border-amber-400 shadow'
                         : 'bg-stone-800 text-stone-300 border-stone-700'
                     }`}
                   >
                     {isCurrentPlaying ? (
-                      <Pause className="w-3.5 h-3.5 fill-current" />
+                      <Pause className="w-3 h-3 fill-current" />
                     ) : (
-                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                      <Play className="w-3 h-3 fill-current ml-0.5" />
                     )}
                   </button>
                 </div>
@@ -248,30 +355,18 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className={`w-full py-2.5 px-3.5 rounded-xl border border-dashed text-xs flex items-center justify-between gap-2 transition-all ${
+              className={`w-full py-2 px-3 rounded-xl border border-dashed text-xs flex items-center justify-between gap-2 transition-all ${
                 customAudioName && isPlayingChant
                   ? 'border-amber-400 bg-amber-500/15 text-amber-200'
-                  : 'border-stone-700 bg-stone-900/40 hover:border-amber-500/40 text-stone-300 hover:text-amber-200'
+                  : 'border-stone-700 bg-stone-900/40 hover:border-amber-500/40 text-stone-400 hover:text-amber-200'
               }`}
             >
               <div className="flex items-center gap-2 truncate">
                 <Upload className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span className="truncate">
-                  {customAudioName ? `File: ${customAudioName}` : 'Tải file MP3 kinh tụng từ máy tính...'}
+                  {customAudioName ? `File riêng: ${customAudioName}` : 'Tải file MP3 kinh tụng từ máy tính...'}
                 </span>
               </div>
-              {customAudioName && isPlayingChant && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    stopChant();
-                  }}
-                  className="p-1 text-red-400 hover:text-red-300"
-                  title="Dừng"
-                >
-                  <Square className="w-3 h-3 fill-current" />
-                </span>
-              )}
             </button>
           </div>
 
@@ -387,7 +482,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ isOpen, onClose }) => 
           onClick={onClose}
           className="w-full py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold rounded-xl text-sm transition-all"
         >
-          Xong
+          Đóng Bảng Điều Khiển
         </button>
       </div>
     </div>

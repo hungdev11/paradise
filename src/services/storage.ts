@@ -19,11 +19,11 @@ const defaultStats: MeritStats = {
 
 export const defaultBackgroundConfig: BackgroundConfig = {
   type: 'preset',
-  url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=2400&q=85', // Hồ Núi Sương Khói
+  url: '/images/tuvien/scene0.jpg', // Chánh Điện Bổn Sư Thích Ca (Tự Viện)
   panX: 0,
   panY: 0,
   zoom: 1.0,
-  brightness: 0.65,
+  brightness: 0.75,
   blur: 0,
   candleFlicker: true,
   zenMotes: true,

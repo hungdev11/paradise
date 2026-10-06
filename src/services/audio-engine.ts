@@ -757,7 +757,6 @@ class ZenAudioEngine {
 
     if (!this.customAudio) {
       this.customAudio = new Audio();
-      this.customAudio.crossOrigin = 'anonymous';
       this.customAudioSrc = this.ctx.createMediaElementSource(this.customAudio);
       this.customAudioSrc.connect(this.chantGain);
     }
@@ -773,6 +772,20 @@ class ZenAudioEngine {
         }
       },
     };
+  }
+
+  public playChantUrl(url: string) {
+    this.playCustomAudio(url);
+  }
+
+  public getAudioElement(): HTMLAudioElement | null {
+    return this.customAudio;
+  }
+
+  public seekChant(timeSeconds: number) {
+    if (this.customAudio && Number.isFinite(timeSeconds)) {
+      this.customAudio.currentTime = Math.max(0, timeSeconds);
+    }
   }
 }
 
