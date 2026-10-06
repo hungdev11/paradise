@@ -1,6 +1,6 @@
 import type { Plugin } from 'vite';
 import { WebSocketServer, WebSocket } from 'ws';
-import type { BodhiWishRibbon, WishRibbonColor, SocialActionType } from '../types/zen';
+import type { BodhiWishRibbon, WishRibbonColor, SocialActionType } from '../types/zen.js';
 
 export interface PlazaPlayerState {
   id: string;
@@ -797,7 +797,7 @@ export function zenPlazaWsPlugin(): Plugin {
 
       // Periodic Group Meditation Check (Every 15s: 2+ players sitting/praying within 160px get +2 merits)
       setInterval(() => {
-        const sittingPlayers: { id: string; x: number; y: number; ws: WebSocket; state: PlazaPlayerState }[] = [];
+        const sittingPlayers: { ws: WebSocket; state: PlazaPlayerState }[] = [];
         for (const p of players.values()) {
           if (p.ws.readyState === WebSocket.OPEN && (p.state.action === 'sit' || p.state.action === 'pray')) {
             sittingPlayers.push(p);

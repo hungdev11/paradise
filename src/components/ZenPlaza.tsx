@@ -3272,41 +3272,6 @@ export const ZenPlaza: React.FC = () => {
           const bubbleY = headTopY - 14;
 
           ctx.save();
-          // Dark ominous defeat bubble with pulsing red border
-          const pulse = Math.sin(time * 0.008) * 0.2 + 0.8;
-          ctx.fillStyle = 'rgba(38, 10, 10, 0.95)';
-          ctx.beginPath();
-          ctx.roundRect(px - bubbleW / 2, bubbleY - bubbleH / 2, bubbleW, bubbleH, 12);
-          ctx.fill();
-          ctx.strokeStyle = `rgba(239, 68, 68, ${pulse})`;
-          ctx.lineWidth = 2;
-          ctx.stroke();
-
-          // Bubble pointer pointing down to stickman head
-          ctx.beginPath();
-          ctx.moveTo(px - 5, bubbleY + bubbleH / 2);
-          ctx.lineTo(px, bubbleY + bubbleH / 2 + 6);
-          ctx.lineTo(px + 5, bubbleY + bubbleH / 2);
-          ctx.fillStyle = 'rgba(38, 10, 10, 0.95)';
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
-          ctx.stroke();
-
-          ctx.fillStyle = '#fca5a5';
-          ctx.fillText(defeatText, px, bubbleY);
-          ctx.restore();
-        } else if (p.chatText && p.chatTime && Date.now() - p.chatTime < 5500) {
-          // Regular speech bubble only if player is not defeated
-          const age = Date.now() - p.chatTime;
-          const bubbleAlpha = age > 4600 ? (5500 - age) / 900 : 1;
-
-          ctx.font = '12px serif';
-          const chatMetrics = ctx.measureText(p.chatText);
-          const bubbleW = chatMetrics.width + 18;
-          const bubbleH = 26;
-          const bubbleY = tagY - 24;
-
-          ctx.save();
           ctx.globalAlpha = bubbleAlpha;
 
           ctx.fillStyle = '#ffffff';
