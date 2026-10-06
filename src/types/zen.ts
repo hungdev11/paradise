@@ -172,6 +172,8 @@ export interface PlazaPlayer {
   isLocal?: boolean;
   merits: number;
   defeatUntil?: number;
+  socialStatus?: PlayerSocialStatus;
+  inMeditationCluster?: boolean;
 }
 
 export type FishTypeId = 'red_carp' | 'goldfish' | 'koi' | 'dragon_fish';
@@ -191,7 +193,7 @@ export const FISH_CATALOG: FishSpec[] = [
   {
     id: 'red_carp',
     name: 'Cá Chép Đỏ (Chu Sa)',
-    cost: 10,
+    cost: 5,
     color: '#ef4444',
     size: 9,
     speed: 1.1,
@@ -201,7 +203,7 @@ export const FISH_CATALOG: FishSpec[] = [
   {
     id: 'goldfish',
     name: 'Cá Vàng Ba Đuôi',
-    cost: 25,
+    cost: 15,
     color: '#f59e0b',
     size: 11,
     speed: 0.95,
@@ -211,7 +213,7 @@ export const FISH_CATALOG: FishSpec[] = [
   {
     id: 'koi',
     name: 'Cá Koi Ngũ Sắc',
-    cost: 60,
+    cost: 35,
     color: '#ec4899',
     size: 13,
     speed: 1.3,
@@ -221,7 +223,7 @@ export const FISH_CATALOG: FishSpec[] = [
   {
     id: 'dragon_fish',
     name: 'Cá Rồng Hoàng Kim',
-    cost: 150,
+    cost: 80,
     color: '#eab308',
     size: 16,
     speed: 1.5,
@@ -255,4 +257,37 @@ export interface TempleDoorTrigger {
   returnX: number;
   returnY: number;
 }
+
+export type WishRibbonColor = 'red' | 'yellow' | 'blue' | 'pink' | 'purple';
+
+export interface BodhiWishRibbon {
+  id: string;
+  senderId: string;
+  senderName: string;
+  color: WishRibbonColor;
+  wishText: string;
+  createdAt: number;
+  rejoiceCount: number;
+  rejoicedBy: string[]; // Danh sách playerId đã tùy hỷ
+  branchIndex: number;  // 0 - 15 vị trí cành cây
+}
+
+export type SocialActionType = 'offer_tea' | 'gift_lotus' | 'mutual_bow';
+
+export interface PlayerSocialStatus {
+  type: SocialActionType;
+  partnerId?: string;
+  partnerName?: string;
+  expiresAt: number; // Timestamp ms hết hạn hiệu ứng
+}
+
+export interface MeditationCluster {
+  id: string;
+  playerIds: string[];
+  centerX: number;
+  centerY: number;
+  radius: number;
+  durationSeconds: number;
+}
+
 
