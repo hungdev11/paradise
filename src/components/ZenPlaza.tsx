@@ -1512,8 +1512,8 @@ export const ZenPlaza: React.FC = () => {
         }
       }
 
-      // Xử lý vào / ra cửa đền bằng phím Space hoặc phím E có Cooldown 1500ms chống spam
-      const isDoorKey = e.code === 'Space' || e.code === 'KeyE' || e.key === 'e' || e.key === 'E';
+      // Xử lý vào / ra cửa đền bằng phím E có Cooldown 1500ms chống spam
+      const isDoorKey = e.code === 'KeyE' || e.key === 'e' || e.key === 'E';
       if (isDoorKey) {
         const now = Date.now();
         const canTransition = now - lastDoorTransitionRef.current > 1500;
