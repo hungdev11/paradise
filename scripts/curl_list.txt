@@ -1,0 +1,140 @@
+url = "https://tuvien.com/chua_online/audio/adidaphat0.mp3"
+output = "public/audio/tuvien/adidaphat0.mp3"
+
+url = "https://tuvien.com/chua_online/audio/adidaphat1.mp3"
+output = "public/audio/tuvien/adidaphat1.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0000.dieu%20phap%20lien%20hoa.mp3"
+output = "public/audio/tuvien/dieu_phap_lien_hoa.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0001.Kinh%20Vu%20Lan.mp3"
+output = "public/audio/tuvien/kinh_vu_lan.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0002.Kinh%20Lang%20%20nghiem%20-%20cong%20phu%20khuya.mp3"
+output = "public/audio/tuvien/kinh_lang_nghiem.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0003.Kinh%20Duoc%20Su.mp3"
+output = "public/audio/tuvien/kinh_duoc_su.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0004.Kinh-PhoMonNghia_TriThoat.mp3"
+output = "public/audio/tuvien/kinh_pho_mon.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0005.Kinh%20Tam%20Dieu%20Tu%20Tam.mp3"
+output = "public/audio/tuvien/kinh_tam_dieu_tu_tam.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0006.A%20di%20da.mp3"
+output = "public/audio/tuvien/kinh_a_di_da.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0007.ThayTriThoat_KinhVoLuongTho-Nghia.mp3"
+output = "public/audio/tuvien/kinh_vo_luong_tho.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0008.tu%20bi%20thuy%20sam.mp3"
+output = "public/audio/tuvien/tu_bi_thuy_sam.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0009.dia%20tang%20bon%20nguyen.mp3"
+output = "public/audio/tuvien/dia_tang_bon_nguyen.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0010.48%20Loi%20Nguyen.mp3"
+output = "public/audio/tuvien/48_loi_nguyen.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/0011.Luc%20Tu%20Di%20Da.mp3"
+output = "public/audio/tuvien/luc_tu_di_da.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/chu_dai_bi.mp3"
+output = "public/audio/tuvien/chu_dai_bi.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/Cong%20Phu%20Khuya.mp3"
+output = "public/audio/tuvien/cong_phu_khuya.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/Kinh%20A%20DI%20DA%20cau%20sieu.mp3"
+output = "public/audio/tuvien/kinh_a_di_da_cau_sieu.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/Kinh%20bao%20hieu.mp3"
+output = "public/audio/tuvien/kinh_bao_hieu.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/Kinh%20sam%20hoi.mp3"
+output = "public/audio/tuvien/kinh_sam_hoi.mp3"
+
+url = "https://tuvien.com/chua_online/audio/kinh/Kinh%20tung%20tong%20tang.mp3"
+output = "public/audio/tuvien/kinh_tong_tang.mp3"
+
+url = "https://tuvien.com/chua_online/img/Scene0.jpg"
+output = "public/images/tuvien/scene0.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene0_.jpg"
+output = "public/images/tuvien/scene0_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene1.jpg"
+output = "public/images/tuvien/scene1.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene1_.jpg"
+output = "public/images/tuvien/scene1_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene2.jpg"
+output = "public/images/tuvien/scene2.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene2_.jpg"
+output = "public/images/tuvien/scene2_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene3.jpg"
+output = "public/images/tuvien/scene3.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene3_.jpg"
+output = "public/images/tuvien/scene3_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene4.jpg"
+output = "public/images/tuvien/scene4.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene4_.jpg"
+output = "public/images/tuvien/scene4_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene5.jpg"
+output = "public/images/tuvien/scene5.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene5_.jpg"
+output = "public/images/tuvien/scene5_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene6.jpg"
+output = "public/images/tuvien/scene6.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene6_.jpg"
+output = "public/images/tuvien/scene6_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene7.jpg"
+output = "public/images/tuvien/scene7.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene7_.jpg"
+output = "public/images/tuvien/scene7_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene8.jpg"
+output = "public/images/tuvien/scene8.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene8_.jpg"
+output = "public/images/tuvien/scene8_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene9.jpg"
+output = "public/images/tuvien/scene9.jpg"
+
+url = "https://tuvien.com/chua_online/img/Scene9_.jpg"
+output = "public/images/tuvien/scene9_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/causieu1.jpg"
+output = "public/images/tuvien/causieu1.jpg"
+
+url = "https://tuvien.com/chua_online/img/causieu1_.jpg"
+output = "public/images/tuvien/causieu1_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/honiem1.jpg"
+output = "public/images/tuvien/honiem1.jpg"
+
+url = "https://tuvien.com/chua_online/img/honiem1_.jpg"
+output = "public/images/tuvien/honiem1_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/ngaygio1.jpg"
+output = "public/images/tuvien/ngaygio1.jpg"
+
+url = "https://tuvien.com/chua_online/img/ngaygio1_.jpg"
+output = "public/images/tuvien/ngaygio1_lit.jpg"
+
+url = "https://tuvien.com/chua_online/img/khoi.png"
+output = "public/images/tuvien/khoi.png"
