@@ -11,7 +11,9 @@ import {
   FishSpec,
   ActiveFishEntity,
   TempleId,
-  TempleDoorTrigger
+  TempleDoorTrigger,
+  PlayerSocialStatus,
+  SocialActionType,
 } from '../types/zen';
 import { plazaService, LocalProfile } from '../services/plaza-service';
 import { audioEngine } from '../services/audio-engine';
@@ -68,6 +70,7 @@ interface VisualEntity {
   isLocal: boolean;
   merits: number;
   defeatUntil?: number;
+  socialStatus?: PlayerSocialStatus;
 }
 
 interface FloatingText {
@@ -472,6 +475,17 @@ export const ZenPlaza: React.FC = () => {
   const [editAvatar, setEditAvatar] = useState(profile.avatar);
   const [editColor, setEditColor] = useState(profile.color);
   const [editHat, setEditHat] = useState(profile.hat);
+
+  // Social Interaction Target State
+  const [selectedSocialPlayer, setSelectedSocialPlayer] = useState<{
+    id: string;
+    name: string;
+    merits: number;
+    avatar: string;
+    color: string;
+    screenX: number;
+    screenY: number;
+  } | null>(null);
 
   // Temple & Fish Release States
   const [currentScene, setCurrentScene] = useState<'plaza' | 'temple_interior'>('plaza');
@@ -1000,6 +1014,84 @@ export const ZenPlaza: React.FC = () => {
       audioEngine.playTempleBell();
     });
 
+    // 13. Social Interaction Events (Dâng trà, tặng sen, bái chào)
+    const unsubSocial = plazaService.onSocialEvent((senderId, senderName, targetId, targetName, action, senderMerits, targetMerits) => {
+      const myId = plazaService.getProfile().id;
+      const isParticipant = myId === senderId || myId === targetId;
+
+      const sPlayer = visualPlayersRef.current.get(senderId);
+      const tPlayer = visualPlayersRef.current.get(targetId);
+      if (sPlayer && typeof senderMerits === 'number') sPlayer.merits = senderMerits;
+      if (tPlayer && typeof targetMerits === 'number') tPlayer.merits = targetMerits;
+
+      if (action === 'offer_tea') {
+        if (sPlayer) sPlayer.socialStatus = { type: 'offer_tea', partnerName: targetName, expiresAt: Date.now() + 8000 };
+        if (tPlayer) tPlayer.socialStatus = { type: 'offer_tea', partnerName: senderName, expiresAt: Date.now() + 8000 };
+        if (isParticipant) {
+          audioEngine.playBeadClick();
+          floatingTextsRef.current.push({
+            id: `ft_tea_${Date.now()}`,
+            x: sPlayer?.currentX || 1800,
+            y: (sPlayer?.currentY || 1100) - 40,
+            text: `🍵 ${senderName} dâng chén trà sen tịnh tâm tới ${targetName}!`,
+            color: '#6ee7b7',
+            alpha: 1,
+          });
+        }
+      } else if (action === 'gift_lotus') {
+        if (tPlayer) tPlayer.socialStatus = { type: 'gift_lotus', partnerName: senderName, expiresAt: Date.now() + 12000 };
+        if (isParticipant) {
+          audioEngine.playTempleBell();
+          floatingTextsRef.current.push({
+            id: `ft_lotus_${Date.now()}`,
+            x: tPlayer?.currentX || 1800,
+            y: (tPlayer?.currentY || 1100) - 40,
+            text: `🪷 ${senderName} tặng đóa sen phước lành (+2 Công Đức) cho ${targetName}!`,
+            color: '#fbbf24',
+            alpha: 1,
+          });
+        }
+      } else if (action === 'mutual_bow') {
+        if (sPlayer) sPlayer.action = 'bow';
+        if (tPlayer) tPlayer.action = 'bow';
+        if (isParticipant) {
+          audioEngine.playBeadClick();
+          floatingTextsRef.current.push({
+            id: `ft_bow_${Date.now()}`,
+            x: sPlayer?.currentX || 1800,
+            y: (sPlayer?.currentY || 1100) - 40,
+            text: `🙏 ${senderName} và ${targetName} cung kính bái chào nhau!`,
+            color: '#fef08a',
+            alpha: 1,
+          });
+          setTimeout(() => {
+            if (sPlayer && sPlayer.action === 'bow') sPlayer.action = 'idle';
+            if (tPlayer && tPlayer.action === 'bow') tPlayer.action = 'idle';
+          }, 2500);
+        }
+      }
+    });
+
+    // 14. Group Meditation Reward Event (Cộng hưởng thanh tịnh)
+    const unsubMeditation = plazaService.onMeditationReward((playerIds, bonus) => {
+      const myId = plazaService.getProfile().id;
+      if (playerIds.includes(myId)) {
+        audioEngine.playTempleBell();
+        const myVp = visualPlayersRef.current.get(myId);
+        if (myVp) {
+          floatingTextsRef.current.push({
+            id: `ft_med_${Date.now()}`,
+            x: myVp.currentX,
+            y: myVp.currentY - 45,
+            text: `✨ +${bonus} Cộng Hưởng Thanh Tịnh (Tọa Thiền Đồng Tu)!`,
+            color: '#fbbf24',
+            alpha: 1,
+          });
+        }
+        setLocalMerits(plazaService.getProfile().merits ?? 5);
+      }
+    });
+
     return () => {
       unsubMove();
       unsubAction();
@@ -1013,6 +1105,8 @@ export const ZenPlaza: React.FC = () => {
       unsubStarted();
       unsubTapped();
       unsubFish();
+      unsubSocial();
+      unsubMeditation();
       plazaService.disconnect();
     };
   }, []);
@@ -1550,15 +1644,23 @@ export const ZenPlaza: React.FC = () => {
     const worldX = screenX + cameraRef.current.x;
     const worldY = screenY + cameraRef.current.y;
 
-    // 1. Check if clicked directly on a nearby remote player to challenge them!
+    // 1. Check if clicked directly on a nearby remote player to interact with them!
     const localX = localPosRef.current.x;
     const localY = localPosRef.current.y;
     for (const [id, vp] of visualPlayersRef.current.entries()) {
       if (!vp.isLocal) {
         const clickDistToPlayer = Math.hypot(vp.currentX - worldX, vp.currentY - worldY);
         const playerDistToPlayer = Math.hypot(vp.currentX - localX, vp.currentY - localY);
-        if (clickDistToPlayer < 40 && playerDistToPlayer < 150) {
-          handleInitiateCombat(id);
+        if (clickDistToPlayer < 42 && playerDistToPlayer < 240) {
+          setSelectedSocialPlayer({
+            id: vp.id,
+            name: vp.name,
+            merits: vp.merits || 0,
+            avatar: vp.avatar,
+            color: vp.color,
+            screenX,
+            screenY,
+          });
           return;
         }
       }
@@ -2720,9 +2822,99 @@ export const ZenPlaza: React.FC = () => {
         }
       }
 
-      // --- 5. DRAW ALL STICKMEN IN WORLD COORDINATES ---
+      // --- 5. DRAW ALL STICKMEN & GROUP MEDITATION RESONANCE IN WORLD COORDINATES ---
       const renderList = Array.from(visualPlayersRef.current.values());
       renderList.sort((a, b) => a.currentY - b.currentY);
+
+      // --- GROUP MEDITATION RESONANCE MANDALAS ---
+      const meditators = renderList.filter((p) => p.action === 'sit' || p.action === 'pray');
+      const visitedMed = new Set<string>();
+      const clusters: VisualEntity[][] = [];
+
+      for (let i = 0; i < meditators.length; i++) {
+        const pA = meditators[i];
+        if (visitedMed.has(pA.id)) continue;
+        const currentCluster = [pA];
+        visitedMed.add(pA.id);
+
+        for (let j = i + 1; j < meditators.length; j++) {
+          const pB = meditators[j];
+          if (visitedMed.has(pB.id)) continue;
+          const dist = Math.hypot(pA.currentX - pB.currentX, pA.currentY - pB.currentY);
+          if (dist <= 160) {
+            currentCluster.push(pB);
+            visitedMed.add(pB.id);
+          }
+        }
+        if (currentCluster.length >= 2) {
+          clusters.push(currentCluster);
+        }
+      }
+
+      for (const cluster of clusters) {
+        const count = cluster.length;
+        const avgX = cluster.reduce((sum, p) => sum + p.currentX, 0) / count;
+        const avgY = cluster.reduce((sum, p) => sum + p.currentY, 0) / count;
+        let maxR = 60;
+        for (const p of cluster) {
+          const d = Math.hypot(p.currentX - avgX, p.currentY - avgY);
+          if (d > maxR) maxR = d;
+        }
+        const mandalaR = maxR + 50;
+
+        // Radial glowing aura
+        const mPulse = Math.sin(time * 0.003) * 6;
+        const mGrad = ctx.createRadialGradient(avgX, avgY, 10, avgX, avgY, mandalaR + mPulse);
+        mGrad.addColorStop(0, 'rgba(251, 191, 36, 0.4)');
+        mGrad.addColorStop(0.6, 'rgba(245, 158, 11, 0.15)');
+        mGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+        ctx.fillStyle = mGrad;
+        ctx.beginPath();
+        ctx.arc(avgX, avgY, mandalaR + mPulse, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Rotating sacred Mandala circles & lotus petal ring
+        ctx.save();
+        ctx.translate(avgX, avgY);
+        ctx.rotate(time * 0.0006);
+
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.arc(0, 0, mandalaR * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(251, 191, 36, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        const petals = count >= 4 ? 12 : 8;
+        for (let a = 0; a < Math.PI * 2; a += 0.05) {
+          const r = mandalaR * 0.65 + Math.sin(a * petals) * 14;
+          const x = Math.cos(a) * r;
+          const y = Math.sin(a) * r;
+          if (a === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+
+        // Golden resonance threads linking meditators
+        for (let i = 0; i < cluster.length; i++) {
+          for (let j = i + 1; j < cluster.length; j++) {
+            const p1 = cluster[i];
+            const p2 = cluster[j];
+            ctx.strokeStyle = 'rgba(251, 191, 36, 0.35)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(p1.currentX, p1.currentY);
+            ctx.quadraticCurveTo(avgX, avgY, p2.currentX, p2.currentY);
+            ctx.stroke();
+          }
+        }
+      }
 
       for (const p of renderList) {
         const px = p.currentX;
@@ -2931,6 +3123,42 @@ export const ZenPlaza: React.FC = () => {
           ctx.font = '14px serif';
           ctx.textAlign = 'center';
           ctx.fillText('🪷', px, currentHeadY - headRadius - 2);
+        }
+
+        // SOCIAL STATUS VISUAL AURA (Dâng trà sen / Tặng hoa sen)
+        if (p.socialStatus && p.socialStatus.expiresAt > Date.now()) {
+          if (p.socialStatus.type === 'offer_tea') {
+            ctx.save();
+            ctx.font = '16px serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('🍵', px + pFacing * 14, currentHeadY - 14);
+
+            // Gentle green steam
+            ctx.strokeStyle = 'rgba(110, 231, 183, 0.7)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            const steamY = currentHeadY - 22 - ((time * 0.02) % 15);
+            ctx.moveTo(px + pFacing * 14, currentHeadY - 16);
+            ctx.quadraticCurveTo(px + pFacing * 14 + Math.sin(time * 0.005) * 4, steamY, px + pFacing * 14, steamY - 6);
+            ctx.stroke();
+            ctx.restore();
+          } else if (p.socialStatus.type === 'gift_lotus') {
+            ctx.save();
+            ctx.translate(px, currentHeadY - headRadius - 16);
+            ctx.rotate(time * 0.002);
+            ctx.font = '18px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🪷', 0, 0);
+
+            ctx.strokeStyle = 'rgba(251, 191, 36, 0.6)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 3]);
+            ctx.beginPath();
+            ctx.arc(0, 0, 16, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
         }
 
         // --- BẢNG TÊN & CÔNG ĐỨC DƯỚI CHÂN NHÂN VẬT (Foot Nameplate & Merits) ---
@@ -4119,6 +4347,125 @@ export const ZenPlaza: React.FC = () => {
         onClose={() => setShowBodhiModal(false)}
         userMerits={localMerits}
       />
+
+      {/* 11. Direct Player Interaction Menu */}
+      {selectedSocialPlayer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-stone-900 border border-amber-500/40 rounded-2xl shadow-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">{selectedSocialPlayer.avatar || '🪷'}</span>
+                <div>
+                  <h3 className="font-serif font-bold text-sm text-amber-200">
+                    {selectedSocialPlayer.name}
+                  </h3>
+                  <p className="text-[10px] text-amber-400 font-mono">
+                    Công Đức: {selectedSocialPlayer.merits}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedSocialPlayer(null)}
+                className="p-1.5 rounded-full text-stone-400 hover:text-white hover:bg-stone-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-300">
+              Chọn nghi thức tương tác cùng đạo hữu:
+            </p>
+
+            <div className="grid grid-cols-1 gap-2">
+              {/* Option 1: Dâng Trà Sen */}
+              <button
+                onClick={() => {
+                  plazaService.sendSocialInteraction(selectedSocialPlayer.id, 'offer_tea');
+                  setSelectedSocialPlayer(null);
+                }}
+                className="w-full p-2.5 rounded-xl bg-stone-800/60 hover:bg-emerald-950/40 border border-stone-700/60 hover:border-emerald-500/50 flex items-center gap-3 transition text-left group"
+              >
+                <span className="text-xl group-hover:scale-110 transition">🍵</span>
+                <div>
+                  <div className="text-xs font-bold text-stone-200 group-hover:text-emerald-300">
+                    Dâng Chén Trà Sen
+                  </div>
+                  <div className="text-[10px] text-stone-400">
+                    Nâng chén trà thơm, tâm thanh tịnh vô ưu
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 2: Tặng Hoa Sen */}
+              <button
+                onClick={() => {
+                  if (localMerits < 2) {
+                    alert('Bạn cần tối thiểu 2 Công Đức để tặng hoa sen!');
+                    return;
+                  }
+                  plazaService.sendSocialInteraction(selectedSocialPlayer.id, 'gift_lotus');
+                  setSelectedSocialPlayer(null);
+                }}
+                disabled={localMerits < 2}
+                className={`w-full p-2.5 rounded-xl border flex items-center gap-3 transition text-left group ${
+                  localMerits >= 2
+                    ? 'bg-stone-800/60 hover:bg-amber-950/40 border-stone-700/60 hover:border-amber-400/50'
+                    : 'bg-stone-900/40 border-stone-800 opacity-50 cursor-not-allowed'
+                }`}
+              >
+                <span className="text-xl group-hover:scale-110 transition">🪷</span>
+                <div>
+                  <div className="text-xs font-bold text-stone-200 group-hover:text-amber-300">
+                    Tặng Đóa Sen Phước Lành (-2 Công Đức)
+                  </div>
+                  <div className="text-[10px] text-stone-400">
+                    Tặng +2 phước lành cho bạn hữu, sen nở trên đầu
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 3: Cung Kính Bái Kiến */}
+              <button
+                onClick={() => {
+                  triggerAction('bow');
+                  plazaService.sendSocialInteraction(selectedSocialPlayer.id, 'mutual_bow');
+                  setSelectedSocialPlayer(null);
+                }}
+                className="w-full p-2.5 rounded-xl bg-stone-800/60 hover:bg-amber-950/40 border border-stone-700/60 hover:border-amber-400/50 flex items-center gap-3 transition text-left group"
+              >
+                <span className="text-xl group-hover:scale-110 transition">🙏</span>
+                <div>
+                  <div className="text-xs font-bold text-stone-200 group-hover:text-amber-300">
+                    Cung Kính Bái Kiến
+                  </div>
+                  <div className="text-[10px] text-stone-400">
+                    Hai bên cùng xá chào trang nghiêm, kết duyên lành
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 4: Luận Võ Gõ Mõ */}
+              <button
+                onClick={() => {
+                  handleInitiateCombat(selectedSocialPlayer.id);
+                  setSelectedSocialPlayer(null);
+                }}
+                className="w-full p-2.5 rounded-xl bg-stone-800/60 hover:bg-rose-950/40 border border-stone-700/60 hover:border-rose-400/50 flex items-center gap-3 transition text-left group"
+              >
+                <span className="text-xl group-hover:scale-110 transition">⚔️</span>
+                <div>
+                  <div className="text-xs font-bold text-stone-200 group-hover:text-rose-300">
+                    Luận Võ Gõ Mõ So Tài
+                  </div>
+                  <div className="text-[10px] text-stone-400">
+                    Đấu gõ mõ 6 giây, thắng +10, thua -5 công đức
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
