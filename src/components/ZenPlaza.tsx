@@ -341,11 +341,11 @@ function drawTempleInterior(
   ctx.strokeRect(doorX - 60, doorY - 30, 120, 50);
   ctx.font = 'bold 11px system-ui';
   ctx.fillStyle = '#fef08a';
-  ctx.fillText('🚪 CỬA RA SÂN CHÙA [E]', doorX, doorY);
+  ctx.fillText('🚪 CỬA RA SÂN CHÙA', doorX, doorY);
 
   // 8. Draw Player Stickman in Interior
   const isMoving = Math.abs(player.vx) > 0.05 || Math.abs(player.vy) > 0.05;
-  const isPraying = player.y > 450 && player.y < 510 && Math.abs(player.x - width / 2) < 160;
+  const isPraying = !isMoving && player.y > 440 && player.y < 510 && Math.abs(player.x - width / 2) < 160;
 
   // Player shadow
   ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
@@ -479,6 +479,13 @@ export const ZenPlaza: React.FC = () => {
   const [nearbyLake, setNearbyLake] = useState<{ id: 'lotus_pond' | 'liberation_pond'; name: string; x: number; y: number; radiusX: number; radiusY: number } | null>(null);
   const [showFishModal, setShowFishModal] = useState<boolean>(false);
   const [indoorMokugyoHits, setIndoorMokugyoHits] = useState<number>(0);
+  const [nearIndoorExit, setNearIndoorExit] = useState<boolean>(false);
+  const currentSceneRef = useRef<'plaza' | 'temple_interior'>('plaza');
+  const activeTempleRef = useRef<TempleDoorTrigger | null>(null);
+  const indoorMokugyoHitsRef = useRef<number>(0);
+  const lastNearbyDoorIdRef = useRef<string | null>(null);
+  const lastNearbyLakeIdRef = useRef<string | null>(null);
+  const lastNearIndoorExitRef = useRef<boolean>(false);
 
   // Canvas & Game Loop Refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -516,6 +523,7 @@ export const ZenPlaza: React.FC = () => {
   const clickRipplesRef = useRef<{ x: number; y: number; radius: number; alpha: number }[]>([]);
   const keysDownRef = useRef<{ [key: string]: boolean }>({});
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const lastDoorTransitionRef = useRef<number>(0);
 
   // Petals particle system (blossom leaves floating in breeze)
   const petalsRef = useRef<
@@ -542,7 +550,13 @@ export const ZenPlaza: React.FC = () => {
 
     // Initial setup for local visual player
     const myProfile = plazaService.getProfile();
+    const local = plazaService.getPlayersMap().get(myProfile.id);
+    const startX = local ? local.x : 1800;
+    const startY = local ? local.y : 1100;
+    localPosRef.current.x = startX;
+    localPosRef.current.y = startY;
     setLocalMerits(myProfile.merits ?? 5);
+
     visualPlayersRef.current.set(myProfile.id, {
       id: myProfile.id,
       name: myProfile.name,
@@ -550,10 +564,10 @@ export const ZenPlaza: React.FC = () => {
       color: myProfile.color,
       hat: myProfile.hat,
       weapon: myProfile.weapon || null,
-      currentX: 1800,
-      currentY: 1100,
-      targetX: 1800,
-      targetY: 1100,
+      currentX: startX,
+      currentY: startY,
+      targetX: startX,
+      targetY: startY,
       vx: 0,
       vy: 0,
       facing: 1,
@@ -564,6 +578,35 @@ export const ZenPlaza: React.FC = () => {
       merits: myProfile.merits ?? 5,
       defeatUntil: myProfile.defeatUntil || 0,
     });
+
+    // Populate already connected remote peers
+    for (const p of plazaService.getPlayersMap().values()) {
+      if (p.id !== myProfile.id) {
+        visualPlayersRef.current.set(p.id, {
+          id: p.id,
+          name: p.name,
+          avatar: p.avatar,
+          color: p.color,
+          hat: p.hat,
+          weapon: p.weapon || null,
+          currentX: p.x,
+          currentY: p.y,
+          targetX: p.x,
+          targetY: p.y,
+          vx: p.vx,
+          vy: p.vy,
+          facing: p.facing,
+          isMoving: p.isMoving,
+          action: p.action,
+          walkCycle: 0,
+          chatText: p.chatText,
+          chatTime: p.chatTime,
+          isLocal: false,
+          merits: p.merits ?? 5,
+          defeatUntil: p.defeatUntil || 0,
+        });
+      }
+    }
 
     // Load initial orbs from service
     const currentOrbs = plazaService.getOrbs();
@@ -778,8 +821,17 @@ export const ZenPlaza: React.FC = () => {
 
     // 7. Combat Result Listener: Clash sound, shockwave effect, and announcement
     const unsubCombat = plazaService.onCombatResult((result) => {
-      // Play authentic Bonk wooden fish sound
-      audioEngine.playWoodenFish(true);
+      const myP = plazaService.getProfile();
+      const isParticipant =
+        myP.id === result.challengerId ||
+        myP.id === result.targetId ||
+        myP.id === result.winnerId ||
+        myP.id === result.loserId;
+
+      // Play authentic Bonk wooden fish sound only for participants
+      if (isParticipant) {
+        audioEngine.playWoodenFish(true);
+      }
 
       const pA = visualPlayersRef.current.get(result.challengerId);
       const pB = visualPlayersRef.current.get(result.targetId);
@@ -802,8 +854,10 @@ export const ZenPlaza: React.FC = () => {
         // DRAW CASE: Both players get +2 merits each
         const drawTaps = result.drawTaps ?? 0;
         const alertMsg = `🤝 TRẬN SO KÈO HÒA NHAU! Cả hai cùng đạt ${drawTaps} tiếng mõ (+2 Công Đức giao duyên)! ✨`;
-        setCombatAlert(alertMsg);
-        setTimeout(() => setCombatAlert(null), 5000);
+        if (isParticipant) {
+          setCombatAlert(alertMsg);
+          setTimeout(() => setCombatAlert(null), 5000);
+        }
 
         if (pA) {
           pA.chatText = `🤝 Hòa nhau! (${drawTaps} Mõ)`;
@@ -832,8 +886,10 @@ export const ZenPlaza: React.FC = () => {
       const loser = result.loserId ? visualPlayersRef.current.get(result.loserId) : undefined;
 
       const alertMsg = `⚔️ ${winner ? winner.name : 'Đạo hữu'} ĐÃ THẮNG SO KÈO (+10 Công Đức)! ${loser ? loser.name : 'Đạo hữu'} THUA CUỘC (-5 Công Đức, khóa bại trận 1 phút)!`;
-      setCombatAlert(alertMsg);
-      setTimeout(() => setCombatAlert(null), 5000);
+      if (isParticipant) {
+        setCombatAlert(alertMsg);
+        setTimeout(() => setCombatAlert(null), 5000);
+      }
 
       if (loser) {
         loser.defeatUntil = result.defeatUntil;
@@ -869,8 +925,13 @@ export const ZenPlaza: React.FC = () => {
       setTimeout(() => setCombatAlert(null), 3500);
     });
 
-    // 10. Combat Duel Started: Both players enter 1v1 Tapping Arena
+    // 10. Combat Duel Started: Only the 2 participants enter 1v1 Tapping Arena
     const unsubStarted = plazaService.onCombatStarted((duel) => {
+      const myP = plazaService.getProfile();
+      // Only the two players in the duel enter the tapping arena
+      if (myP.id !== duel.playerAId && myP.id !== duel.playerBId) {
+        return;
+      }
       setActiveDuel(duel);
       setPendingInviteTarget(null);
       setIncomingInvite(null);
@@ -880,11 +941,12 @@ export const ZenPlaza: React.FC = () => {
       audioEngine.playWoodenFish(true);
     });
 
-    // 11. Combat Tap Event: Sync real-time taps
+    // 11. Combat Tap Event: Sync real-time taps (only for duel participants)
     const unsubTapped = plazaService.onCombatTapped((duelId, _playerId, aTaps, bTaps) => {
       setActiveDuel((curr) => {
         if (!curr || curr.duelId !== duelId) return curr;
         const myP = plazaService.getProfile();
+        if (myP.id !== curr.playerAId && myP.id !== curr.playerBId) return null;
         const isPlayerA = myP.id === curr.playerAId;
         setMyDuelTaps(isPlayerA ? aTaps : bTaps);
         setOppDuelTaps(isPlayerA ? bTaps : aTaps);
@@ -1011,6 +1073,16 @@ export const ZenPlaza: React.FC = () => {
 
   // Trigger Action Emote
   const triggerAction = useCallback((action: StickmanAction) => {
+    // Toggle off if currently performing this action (e.g. dừng thiền, dừng quỳ)
+    if (activeAction === action) {
+      setActiveAction('idle');
+      plazaService.sendLocalAction('idle');
+      const myProfile = plazaService.getProfile();
+      const myVp = visualPlayersRef.current.get(myProfile.id);
+      if (myVp) myVp.action = 'idle';
+      return;
+    }
+
     setActiveAction(action);
     plazaService.sendLocalAction(action);
 
@@ -1030,23 +1102,28 @@ export const ZenPlaza: React.FC = () => {
 
     if (action !== 'sit') {
       setTimeout(() => {
-        setActiveAction('idle');
-        plazaService.sendLocalAction('idle');
-        if (myVp) myVp.action = 'idle';
-      }, 3400);
+        setActiveAction((curr) => (curr === action ? 'idle' : curr));
+        const currVp = visualPlayersRef.current.get(myProfile.id);
+        if (currVp && currVp.action === action) {
+          currVp.action = 'idle';
+          plazaService.sendLocalAction('idle');
+        }
+      }, 2500);
     }
-  }, []);
+  }, [activeAction]);
 
   // Tap Wooden Fish during 1v1 Combat Duel
   const handleDuelTap = useCallback(() => {
     if (!activeDuel || duelResult) return;
+    const myId = profile.id;
+    if (myId !== activeDuel.playerAId && myId !== activeDuel.playerBId) return;
     const now = Date.now();
     if (now < activeDuel.startTime || now > activeDuel.startTime + activeDuel.duration) return;
 
     setMyDuelTaps((prev) => prev + 1);
     audioEngine.playWoodenFish(false);
     plazaService.sendCombatTap(activeDuel.duelId);
-  }, [activeDuel, duelResult]);
+  }, [activeDuel, duelResult, profile.id]);
 
   // Accept incoming 1v1 Combat Challenge
   const handleAcceptInvite = () => {
@@ -1065,6 +1142,8 @@ export const ZenPlaza: React.FC = () => {
   // 1v1 Duel Game Loop & Clock
   useEffect(() => {
     if (!activeDuel) return;
+    const myId = profile.id;
+    if (myId !== activeDuel.playerAId && myId !== activeDuel.playerBId) return;
 
     const interval = setInterval(() => {
       const now = Date.now();
@@ -1206,56 +1285,104 @@ export const ZenPlaza: React.FC = () => {
 
   // Enter Temple Interior
   const handleEnterTemple = useCallback((door: TempleDoorTrigger) => {
+    activeTempleRef.current = door;
     setActiveTemple(door);
+    currentSceneRef.current = 'temple_interior';
     setCurrentScene('temple_interior');
-    indoorPosRef.current = { x: 600, y: 540, vx: 0, vy: 0, facing: 1 };
+    indoorPosRef.current = { x: 550, y: 530, vx: 0, vy: 0, facing: 1 };
     targetClickRef.current = null;
+    lastNearIndoorExitRef.current = true;
+    setNearIndoorExit(true);
     audioEngine.playTempleBell();
   }, []);
 
   // Exit Temple Interior
   const handleExitTemple = useCallback(() => {
-    if (activeTemple) {
-      localPosRef.current.x = activeTemple.returnX;
-      localPosRef.current.y = activeTemple.returnY;
+    const temple = activeTempleRef.current || activeTemple;
+    if (temple) {
+      localPosRef.current.x = temple.returnX;
+      localPosRef.current.y = temple.returnY;
       localPosRef.current.vx = 0;
       localPosRef.current.vy = 0;
       targetClickRef.current = null;
     }
+    lastNearIndoorExitRef.current = false;
+    setNearIndoorExit(false);
+    currentSceneRef.current = 'plaza';
     setCurrentScene('plaza');
     audioEngine.playWoodenFish();
   }, [activeTemple]);
 
   // Release Fish at lake
   const handleReleaseFish = useCallback((fish: FishSpec) => {
-    if (!nearbyLake) return;
+    const lake = nearbyLake || LAKES[0];
     if (localMerits < fish.cost) {
-      alert(`Bạn cần tối thiểu ${fish.cost} Công Đức để phóng sinh ${fish.name}!`);
+      alert(`Bạn cần tối thiểu ${fish.cost} Công Đức để phóng sinh ${fish.name}! Đi gõ mõ hoặc lạy Phật để tích thêm công đức.`);
       return;
     }
 
     const angle = Math.random() * Math.PI * 2;
-    const spawnX = nearbyLake.x + Math.cos(angle) * (nearbyLake.radiusX * 0.85);
-    const spawnY = nearbyLake.y + Math.sin(angle) * (nearbyLake.radiusY * 0.85);
+    const spawnX = lake.x + Math.cos(angle) * (lake.radiusX * 0.75);
+    const spawnY = lake.y + Math.sin(angle) * (lake.radiusY * 0.75);
 
-    const success = plazaService.releaseFish(fish.id, fish.cost, nearbyLake.id, spawnX, spawnY);
-    if (success) {
-      setLocalMerits((prev) => prev - fish.cost);
-      setShowFishModal(false);
-      audioEngine.playTempleBell();
-      plazaService.sendChat(`🙏 Nam Mô A Di Đà Phật! Đã phóng sinh ${fish.name}!`);
-    }
-  }, [nearbyLake, localMerits]);
+    // Call service to broadcast across network & update storage
+    plazaService.releaseFish(fish.id, fish.cost, lake.id, spawnX, spawnY);
+
+    // Update local state immediately
+    const nextMerits = localMerits - fish.cost;
+    setLocalMerits(nextMerits);
+    setShowFishModal(false);
+    audioEngine.playTempleBell();
+
+    // Spawn animated fish directly into the lake immediately
+    const spec = fish;
+    const newFish: ActiveFishEntity = {
+      id: `fish_usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      type: fish.id,
+      lakeId: lake.id,
+      x: spawnX,
+      y: spawnY,
+      vx: (Math.random() - 0.5) * spec.speed,
+      vy: (Math.random() - 0.5) * spec.speed,
+      angle: Math.random() * Math.PI * 2,
+      color: spec.color,
+      size: spec.size,
+      tailPhase: 0,
+      releasedBy: profile.name,
+    };
+    activeFishesRef.current.push(newFish);
+
+    // Water ripple effect
+    splashRipplesRef.current.push({
+      x: spawnX,
+      y: spawnY,
+      radius: 12,
+      maxRadius: 75,
+      alpha: 1,
+      color: spec.color,
+    });
+
+    // Floating celebration text
+    floatingTextsRef.current.push({
+      id: `ft_fish_${Date.now()}`,
+      x: spawnX,
+      y: spawnY - 20,
+      text: `✨ Phóng Sinh ${spec.name} Thành Công! (-${fish.cost} Công Đức)`,
+      color: '#67e8f9',
+      alpha: 1,
+    });
+
+    plazaService.sendChat(`🙏 Nam Mô A Di Đà Phật! Đã phóng sinh ${fish.name}!`);
+  }, [nearbyLake, localMerits, profile.name]);
 
   // Tap Indoor Mokugyo inside Chánh Điện
   const handleTapIndoorMokugyo = useCallback(() => {
     audioEngine.playWoodenFish(false);
+    indoorMokugyoHitsRef.current += 1;
     setIndoorMokugyoHits((h) => h + 1);
     setLocalMerits((m) => {
       const next = m + 1;
-      const p = plazaService.getProfile();
-      p.merits = next;
-      try { localStorage.setItem('zen_plaza_profile_v1', JSON.stringify(p)); } catch {}
+      plazaService.updateProfile({ merits: next });
       return next;
     });
     floatingTextsRef.current.push({
@@ -1273,37 +1400,47 @@ export const ZenPlaza: React.FC = () => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
 
+      // CHỐNG SPAM: Ngăn chặn tự động lặp lại khi giữ phím (Edge-trigger)
+      if (e.repeat) return;
+
       keysDownRef.current[e.code] = true;
 
-      // During active duel: Tap wooden fish with L or Space!
-      if (activeDuel && !duelResult) {
-        if (e.code === 'KeyL' || e.code === 'Space' || e.key === 'l' || e.key === 'L') {
+      // During active duel: Tap wooden fish with Space (only for duel participants)!
+      if (activeDuel && !duelResult && (profile.id === activeDuel.playerAId || profile.id === activeDuel.playerBId)) {
+        if (e.code === 'Space') {
           e.preventDefault();
           handleDuelTap();
           return;
         }
       }
 
-      // Inside Temple Interior: Space or L taps giant indoor Mokugyo
-      if (currentScene === 'temple_interior' && (e.code === 'Space' || e.code === 'KeyL' || e.key === 'l' || e.key === 'L')) {
-        e.preventDefault();
-        handleTapIndoorMokugyo();
-        return;
-      }
-
-      // Key E: Enter / Exit Temple Doorway
-      if (e.code === 'KeyE' || e.key === 'e' || e.key === 'E') {
-        if (currentScene === 'plaza' && nearbyDoor) {
+      // Xử lý vào / ra cửa đền bằng phím Space hoặc phím E có Cooldown 1500ms chống spam
+      const isDoorKey = e.code === 'Space' || e.code === 'KeyE' || e.key === 'e' || e.key === 'E';
+      if (isDoorKey) {
+        const now = Date.now();
+        const canTransition = now - lastDoorTransitionRef.current > 1500;
+        if (currentSceneRef.current === 'plaza' && nearbyDoor && canTransition) {
+          e.preventDefault();
+          lastDoorTransitionRef.current = now;
           handleEnterTemple(nearbyDoor);
           return;
-        } else if (currentScene === 'temple_interior') {
+        } else if (currentSceneRef.current === 'temple_interior' && nearIndoorExit && canTransition) {
+          e.preventDefault();
+          lastDoorTransitionRef.current = now;
           handleExitTemple();
           return;
         }
       }
 
-      // Key F: Open Fish Release Modal when near a lake
-      if (e.code === 'KeyF' || e.key === 'f' || e.key === 'F') {
+      // Inside Temple Interior: Space taps giant indoor Mokugyo to tích công đức (chỉ khi không ở ngay cửa thoát)
+      if (currentSceneRef.current === 'temple_interior' && e.code === 'Space' && !nearIndoorExit) {
+        e.preventDefault();
+        handleTapIndoorMokugyo();
+        return;
+      }
+
+      // Key G (or F): Open Fish Release Modal when near a lake
+      if (e.code === 'KeyG' || e.key === 'g' || e.key === 'G' || e.code === 'KeyF' || e.key === 'f' || e.key === 'F') {
         if (currentScene === 'plaza' && nearbyLake) {
           setShowFishModal(true);
           return;
@@ -1344,6 +1481,7 @@ export const ZenPlaza: React.FC = () => {
     currentScene,
     nearbyDoor,
     nearbyLake,
+    nearIndoorExit,
     handleEnterTemple,
     handleExitTemple,
     handleTapIndoorMokugyo
@@ -1362,21 +1500,37 @@ export const ZenPlaza: React.FC = () => {
     const screenX = (e.clientX - rect.left) * scaleX;
     const screenY = (e.clientY - rect.top) * scaleY;
 
-    // Interior scene handling
-    if (currentScene === 'temple_interior') {
-      const clickDistToMokugyo = Math.hypot(screenX - 600, screenY - 380);
+    // 1. Interior scene handling: click Mokugyo to tap, click exit door to exit, or click to walk!
+    if (currentSceneRef.current === 'temple_interior') {
+      const centerX = canvas.width / 2;
+      const clickDistToMokugyo = Math.hypot(screenX - centerX, screenY - 380);
       if (clickDistToMokugyo < 55) {
         handleTapIndoorMokugyo();
         return;
       }
-      if (Math.hypot(screenX - 600, screenY - 600) < 55) {
+      if (Math.hypot(screenX - centerX, screenY - (canvas.height - 40)) < 55) {
         handleExitTemple();
         return;
       }
-      const clampedX = Math.max(120, Math.min(1080, screenX));
-      const clampedY = Math.max(200, Math.min(620, screenY));
+
+      // If currently meditating or kneeling inside temple, cannot move until finished
+      const myProfile = plazaService.getProfile();
+      const myVp = visualPlayersRef.current.get(myProfile.id);
+      if (myVp && myVp.action && myVp.action !== 'idle') {
+        return;
+      }
+
+      const clampedX = Math.max(140, Math.min(canvas.width - 140, screenX));
+      const clampedY = Math.max(220, Math.min(canvas.height - 45, screenY));
       targetClickRef.current = { x: clampedX, y: clampedY };
       clickRipplesRef.current.push({ x: clampedX, y: clampedY, radius: 4, alpha: 1.0 });
+      return;
+    }
+
+    // 2. If character is performing an action (thiền, quỳ/đảnh lễ, chắp tay, gõ mõ), cannot move until finished!
+    const myProfile = plazaService.getProfile();
+    const myVp = visualPlayersRef.current.get(myProfile.id);
+    if (myVp && myVp.action && myVp.action !== 'idle') {
       return;
     }
 
@@ -1442,6 +1596,111 @@ export const ZenPlaza: React.FC = () => {
       if (keys['KeyA'] || keys['ArrowLeft']) dx -= 1;
       if (keys['KeyD'] || keys['ArrowRight']) dx += 1;
 
+      // --- SCENE A: TEMPLE INTERIOR SCENE ---
+      if (currentSceneRef.current === 'temple_interior') {
+        const myProfile = plazaService.getProfile();
+        const myVp = visualPlayersRef.current.get(myProfile.id);
+        const isPerformingAction = Boolean(myVp && myVp.action && myVp.action !== 'idle');
+
+        if (isPerformingAction) {
+          dx = 0;
+          dy = 0;
+          targetClickRef.current = null;
+        }
+
+        if (dx !== 0 || dy !== 0) {
+          targetClickRef.current = null;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          dx = (dx / len) * speed;
+          dy = (dy / len) * speed;
+        } else if (targetClickRef.current) {
+          const tx = targetClickRef.current.x - indoorPosRef.current.x;
+          const ty = targetClickRef.current.y - indoorPosRef.current.y;
+          const dist = Math.sqrt(tx * tx + ty * ty);
+          if (dist > 5) {
+            dx = (tx / dist) * Math.min(speed, dist);
+            dy = (ty / dist) * Math.min(speed, dist);
+          } else {
+            targetClickRef.current = null;
+          }
+        }
+
+        const isIndoorMoving = Math.abs(dx) > 0.05 || Math.abs(dy) > 0.05;
+        if (isIndoorMoving) {
+          indoorPosRef.current.x += dx;
+          indoorPosRef.current.y += dy;
+          indoorPosRef.current.vx = dx;
+          indoorPosRef.current.vy = dy;
+          if (dx > 0.1) indoorPosRef.current.facing = 1;
+          if (dx < -0.1) indoorPosRef.current.facing = -1;
+        } else {
+          indoorPosRef.current.vx = 0;
+          indoorPosRef.current.vy = 0;
+        }
+
+        // Clamp to indoor temple room boundaries
+        indoorPosRef.current.x = Math.max(140, Math.min(canvas.width - 140, indoorPosRef.current.x));
+        indoorPosRef.current.y = Math.max(220, Math.min(canvas.height - 45, indoorPosRef.current.y));
+
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawTempleInterior(
+          ctx,
+          canvas.width,
+          canvas.height,
+          indoorPosRef.current,
+          plazaService.getProfile(),
+          activeTempleRef.current?.name || activeTemple?.name || 'Đại Hùng Bảo Điện',
+          time,
+          walkCycle,
+          indoorMokugyoHitsRef.current,
+          floatingTextsRef.current
+        );
+
+        // Draw click ripples in temple interior
+        for (let i = clickRipplesRef.current.length - 1; i >= 0; i--) {
+          const rip = clickRipplesRef.current[i];
+          rip.radius += 1.2;
+          rip.alpha -= 0.035;
+          if (rip.alpha <= 0) {
+            clickRipplesRef.current.splice(i, 1);
+          } else {
+            ctx.save();
+            ctx.strokeStyle = `rgba(251, 191, 36, ${rip.alpha})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(rip.x, rip.y, rip.radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+        ctx.restore();
+
+        // Update floating texts
+        for (let i = floatingTextsRef.current.length - 1; i >= 0; i--) {
+          const ft = floatingTextsRef.current[i];
+          ft.y -= 1.0;
+          ft.alpha -= 0.02;
+          if (ft.alpha <= 0) floatingTextsRef.current.splice(i, 1);
+        }
+
+        requestRef.current = requestAnimationFrame(render);
+        return;
+      }
+
+      // --- SCENE B: PLAZA OUTDOOR MOVEMENT ---
+      // Check if character is currently performing an action (thiền, quỳ/đảnh lễ, chắp tay, gõ mõ)
+      const myProfile = plazaService.getProfile();
+      const myVp = visualPlayersRef.current.get(myProfile.id);
+      const isPerformingAction = Boolean(myVp && myVp.action && myVp.action !== 'idle');
+
+      if (isPerformingAction) {
+        // While meditating (thiền) or kneeling (quỳ/đảnh lễ), character CANNOT MOVE until action finishes!
+        dx = 0;
+        dy = 0;
+        targetClickRef.current = null;
+      }
+
       if (dx !== 0 || dy !== 0) {
         targetClickRef.current = null;
         const len = Math.sqrt(dx * dx + dy * dy);
@@ -1477,6 +1736,37 @@ export const ZenPlaza: React.FC = () => {
         localPosRef.current.vy = 0;
       }
 
+      // Check proximity to temple doors (only when player is immediately at the door entrance, <= 48px)
+      let foundDoor: TempleDoorTrigger | null = null;
+      for (const d of TEMPLE_DOORS) {
+        if (Math.hypot(d.doorX - localPosRef.current.x, d.doorY - localPosRef.current.y) < 48) {
+          foundDoor = d;
+          break;
+        }
+      }
+      const doorId = foundDoor ? foundDoor.id : null;
+      if (doorId !== lastNearbyDoorIdRef.current) {
+        lastNearbyDoorIdRef.current = doorId;
+        setNearbyDoor(foundDoor);
+      }
+
+      // Check proximity to lakes for fish releasing (strictly at the lake bank or dock, normDist <= 1.05)
+      let foundLake: (typeof LAKES)[0] | null = null;
+      for (const lake of LAKES) {
+        const dx = localPosRef.current.x - lake.x;
+        const dy = localPosRef.current.y - lake.y;
+        const normDist = Math.sqrt((dx * dx) / (lake.radiusX * lake.radiusX) + (dy * dy) / (lake.radiusY * lake.radiusY));
+        if (normDist <= 1.05) {
+          foundLake = lake;
+          break;
+        }
+      }
+      const lakeId = foundLake ? foundLake.id : null;
+      if (lakeId !== lastNearbyLakeIdRef.current) {
+        lastNearbyLakeIdRef.current = lakeId;
+        setNearbyLake(foundLake);
+      }
+
       // Check proximity for looting scattered merit orbs!
       const currentX = localPosRef.current.x;
       const currentY = localPosRef.current.y;
@@ -1488,11 +1778,11 @@ export const ZenPlaza: React.FC = () => {
         }
       }
 
-      // Check nearby opponents for 1v1 combat prompt (throttled every 200ms)
+      // Check nearby opponents for 1v1 combat prompt (strictly close distance <= 50px, throttled every 200ms)
       if (time - lastOpponentCheck > 200) {
         lastOpponentCheck = time;
         let foundOpponent: { id: string; name: string; merits: number; weapon?: string | null; isDefeated: boolean } | null = null;
-        let closestDist = 140;
+        let closestDist = 50;
 
         for (const [id, vp] of visualPlayersRef.current.entries()) {
           if (!vp.isLocal) {
@@ -1519,13 +1809,16 @@ export const ZenPlaza: React.FC = () => {
       }
 
       // Update local player in visual map
-      const myProfile = plazaService.getProfile();
-      const myVp = visualPlayersRef.current.get(myProfile.id);
       if (myVp) {
         myVp.currentX = localPosRef.current.x;
         myVp.currentY = localPosRef.current.y;
         myVp.facing = localPosRef.current.facing;
         myVp.isMoving = isMoving;
+        if (isMoving && myVp.action !== 'idle') {
+          myVp.action = 'idle';
+          setActiveAction('idle');
+          plazaService.sendLocalAction('idle');
+        }
         myVp.merits = myProfile.merits ?? 5;
         myVp.weapon = myProfile.weapon || null;
         myVp.defeatUntil = myProfile.defeatUntil || 0;
@@ -1583,336 +1876,523 @@ export const ZenPlaza: React.FC = () => {
       // Apply camera transformation!
       ctx.translate(-camX, -camY);
 
-      // --- WORLD MAP BACKGROUND ---
+      // --- WORLD MAP BACKGROUND (3600 x 2200) ---
       // Ground Tile / Stone Floor with Organic Paving
       ctx.fillStyle = '#1c1917';
       ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-      // Natural Grass Field Carpets in Courtyard
-      const grassGrad = ctx.createRadialGradient(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 200, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 1100);
+      // Natural Grass Field Carpets across Sanctuary
+      const grassGrad = ctx.createRadialGradient(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 300, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 1750);
       grassGrad.addColorStop(0, '#292524');
-      grassGrad.addColorStop(0.5, '#1e2820');
-      grassGrad.addColorStop(1, '#171e18');
+      grassGrad.addColorStop(0.4, '#1e2820');
+      grassGrad.addColorStop(0.8, '#171e18');
+      grassGrad.addColorStop(1, '#141714');
       ctx.fillStyle = grassGrad;
       ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-      // Paved Stone Pathways connecting the 5 Zones
-      ctx.strokeStyle = 'rgba(214, 211, 209, 0.15)';
-      ctx.lineWidth = 42;
+      // Paved Stone Pathways connecting the 7 Zones
+      ctx.strokeStyle = 'rgba(214, 211, 209, 0.16)';
+      ctx.lineWidth = 44;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      // Path: Central Courtyard <-> Grand Pagoda
+      // Path 1: Cổng Tam Quan (1800, 2050) <-> Tâm Quảng Trường (1800, 1200) <-> Đại Hùng Bảo Điện (1800, 360)
       ctx.beginPath();
-      ctx.moveTo(1000, 680);
-      ctx.lineTo(1000, 240);
+      ctx.moveTo(1800, 2050);
+      ctx.lineTo(1800, 360);
       ctx.stroke();
 
-      // Path: Central Courtyard <-> Buddha Statue (Left)
+      // Path 2: Tâm Quảng Trường (1800, 1200) <-> Điện Quán Thế Âm (800, 550)
       ctx.beginPath();
-      ctx.moveTo(1000, 680);
-      ctx.bezierCurveTo(750, 660, 550, 560, 420, 530);
+      ctx.moveTo(1800, 1200);
+      ctx.bezierCurveTo(1450, 1150, 1100, 850, 800, 550);
       ctx.stroke();
 
-      // Path: Central Courtyard <-> Bell & Mokugyo Pavilion (Right)
+      // Path 3: Tâm Quảng Trường (1800, 1200) <-> Thiền Đường Trúc Lâm (2800, 550)
       ctx.beginPath();
-      ctx.moveTo(1000, 680);
-      ctx.bezierCurveTo(1250, 660, 1450, 560, 1600, 530);
+      ctx.moveTo(1800, 1200);
+      ctx.bezierCurveTo(2150, 1150, 2500, 850, 2800, 550);
       ctx.stroke();
 
-      // Path: Central Courtyard <-> Lotus Pond & Bridge (Bottom-Left)
+      // Path 4: Tâm Quảng Trường (1800, 1200) <-> Hồ Sen Tịnh Tâm (900, 1500)
       ctx.beginPath();
-      ctx.moveTo(1000, 680);
-      ctx.bezierCurveTo(800, 850, 650, 950, 480, 1050);
+      ctx.moveTo(1800, 1200);
+      ctx.bezierCurveTo(1450, 1250, 1150, 1380, 900, 1500);
       ctx.stroke();
 
-      // Path: Central Courtyard <-> Bodhi Tree & Ancient Stupa (Bottom-Right)
+      // Path 5: Tâm Quảng Trường (1800, 1200) <-> Hồ Phóng Sinh Bát Nhã (2700, 1500)
       ctx.beginPath();
-      ctx.moveTo(1000, 680);
-      ctx.bezierCurveTo(1200, 850, 1400, 950, 1580, 1050);
+      ctx.moveTo(1800, 1200);
+      ctx.bezierCurveTo(2150, 1250, 2450, 1380, 2700, 1500);
+      ctx.stroke();
+
+      // Path 6: Hồ Sen (900, 1500) <-> Cổng Tam Quan (1800, 2050)
+      ctx.beginPath();
+      ctx.moveTo(900, 1500);
+      ctx.bezierCurveTo(1150, 1750, 1500, 1980, 1800, 2050);
+      ctx.stroke();
+
+      // Path 7: Hồ Phóng Sinh (2700, 1500) <-> Cổng Tam Quan (1800, 2050)
+      ctx.beginPath();
+      ctx.moveTo(2700, 1500);
+      ctx.bezierCurveTo(2450, 1750, 2100, 1980, 1800, 2050);
       ctx.stroke();
 
       // Stone Path borders
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.2)';
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.22)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // --- ZONE 1: ĐẠI HÙNG BẢO ĐIỆN (Grand Pagoda Temple - Top-Center) ---
-      const templeX = 1000;
-      const templeY = 160;
+      // --- ZONE 1: CỔNG TAM QUAN (1800, 2050) ---
+      const gateX = 1800;
+      const gateY = 2050;
 
-      // Temple Base Terrace
+      // Base Terrace
       ctx.fillStyle = '#292524';
-      ctx.fillRect(templeX - 220, templeY - 60, 440, 130);
+      ctx.fillRect(gateX - 160, gateY - 20, 320, 40);
       ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(templeX - 220, templeY - 60, 440, 130);
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(gateX - 160, gateY - 20, 320, 40);
 
-      // Entrance Stairs
-      ctx.fillStyle = '#44403c';
-      ctx.fillRect(templeX - 70, templeY + 70, 140, 35);
-      ctx.strokeStyle = '#d97706';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(templeX - 70, templeY + 70, 140, 35);
+      // Gate Columns (4 cột lim đỏ)
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fillRect(gateX - 130, gateY - 75, 16, 75);
+      ctx.fillRect(gateX - 50, gateY - 95, 18, 95);
+      ctx.fillRect(gateX + 32, gateY - 95, 18, 95);
+      ctx.fillRect(gateX + 114, gateY - 75, 16, 75);
 
-      // Main Pagoda Wall & Red Pillars
-      ctx.fillStyle = '#450a0a';
-      ctx.fillRect(templeX - 190, templeY - 50, 380, 110);
-      // Pillars
-      ctx.fillStyle = '#991b1b';
-      for (let px = -170; px <= 170; px += 85) {
-        ctx.fillRect(templeX + px - 7, templeY - 50, 14, 110);
-      }
-
-      // Curved Pagoda Roof (Mái chùa cong rồng uốn lượn)
+      // Gate Curved Roofs
       ctx.fillStyle = '#78350f';
       ctx.beginPath();
-      ctx.moveTo(templeX - 260, templeY - 45);
-      ctx.quadraticCurveTo(templeX - 190, templeY - 80, templeX - 120, templeY - 95);
-      ctx.lineTo(templeX, templeY - 110);
-      ctx.lineTo(templeX + 120, templeY - 95);
-      ctx.quadraticCurveTo(templeX + 190, templeY - 80, templeX + 260, templeY - 45);
-      ctx.quadraticCurveTo(templeX, templeY - 70, templeX - 260, templeY - 45);
-      ctx.fill();
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-
-      // Top Pagoda Spire Finial
-      ctx.fillStyle = '#f59e0b';
-      ctx.beginPath();
-      ctx.moveTo(templeX, templeY - 135);
-      ctx.lineTo(templeX - 12, templeY - 105);
-      ctx.lineTo(templeX + 12, templeY - 105);
+      ctx.moveTo(gateX - 90, gateY - 95);
+      ctx.quadraticCurveTo(gateX, gateY - 125, gateX + 90, gateY - 95);
+      ctx.lineTo(gateX + 75, gateY - 85);
+      ctx.quadraticCurveTo(gateX, gateY - 105, gateX - 75, gateY - 85);
       ctx.closePath();
       ctx.fill();
-
-      // Temple Plaque (Đại Hùng Bảo Điện)
-      ctx.fillStyle = '#78350f';
-      ctx.fillRect(templeX - 85, templeY - 30, 170, 24);
       ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(templeX - 85, templeY - 30, 170, 24);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(gateX - 150, gateY - 75);
+      ctx.quadraticCurveTo(gateX - 90, gateY - 95, gateX - 35, gateY - 75);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(gateX + 35, gateY - 75);
+      ctx.quadraticCurveTo(gateX + 90, gateY - 95, gateX + 150, gateY - 75);
+      ctx.fill();
+      ctx.stroke();
+
+      // Signboard "CHÙA TÂM AN"
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(gateX - 60, gateY - 70, 120, 22);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(gateX - 60, gateY - 70, 120, 22);
       ctx.font = 'bold 11px serif';
       ctx.fillStyle = '#fbbf24';
       ctx.textAlign = 'center';
-      ctx.fillText('ĐẠI HÙNG BẢO ĐIỆN', templeX, templeY - 14);
+      ctx.fillText('CỔNG TAM QUAN', gateX, gateY - 54);
 
-      // Giant Bronze Incense Cauldron in front of temple
+      // --- ZONE 2: ĐẠI HÙNG BẢO ĐIỆN (1800, 300) ---
+      const templeX = 1800;
+      const templeY = 300;
+
+      // Temple Base Terrace
       ctx.fillStyle = '#292524';
-      ctx.beginPath();
-      ctx.ellipse(templeX, templeY + 115, 26, 15, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#d97706';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Incense Smoke curls
-      ctx.strokeStyle = 'rgba(254, 243, 199, 0.4)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(templeX - 4, templeY + 105);
-      ctx.bezierCurveTo(templeX - 15, templeY + 80, templeX + 10, templeY + 65, templeX - 2, templeY + 40);
-      ctx.stroke();
-
-      // --- ZONE 2: TƯỢNG PHẬT A DI ĐÀ (Center-Left: 400, 530) ---
-      const buddhaX = 400;
-      const buddhaY = 530;
-
-      // Golden Halo Radiance
-      const haloGrad = ctx.createRadialGradient(buddhaX, buddhaY - 40, 15, buddhaX, buddhaY - 40, 110);
-      haloGrad.addColorStop(0, 'rgba(251, 191, 36, 0.45)');
-      haloGrad.addColorStop(0.6, 'rgba(245, 158, 11, 0.15)');
-      haloGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
-      ctx.fillStyle = haloGrad;
-      ctx.beginPath();
-      ctx.arc(buddhaX, buddhaY - 40, 110, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Multi-layer Marble Lotus Throne Pedestal
-      ctx.fillStyle = '#44403c';
-      ctx.beginPath();
-      ctx.ellipse(buddhaX, buddhaY + 45, 80, 40, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#d97706';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Lotus Petals Base
-      ctx.fillStyle = '#f59e0b';
-      for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 6) {
-        const px = buddhaX + Math.cos(angle) * 58;
-        const py = buddhaY + 30 + Math.sin(angle) * 24;
-        ctx.beginPath();
-        ctx.arc(px, py, 10, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Golden Buddha Statue Body (Tượng Phật A Di Đà ngồi thiền)
-      ctx.fillStyle = '#d97706';
-      ctx.beginPath();
-      ctx.ellipse(buddhaX, buddhaY + 12, 42, 28, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Robe torso
-      ctx.fillStyle = '#b45309';
-      ctx.beginPath();
-      ctx.moveTo(buddhaX - 24, buddhaY + 15);
-      ctx.lineTo(buddhaX - 16, buddhaY - 30);
-      ctx.lineTo(buddhaX + 16, buddhaY - 30);
-      ctx.lineTo(buddhaX + 24, buddhaY + 15);
-      ctx.closePath();
-      ctx.fill();
-      // Head
-      ctx.fillStyle = '#f59e0b';
-      ctx.beginPath();
-      ctx.arc(buddhaX, buddhaY - 42, 19, 0, Math.PI * 2);
-      ctx.fill();
-      // Ushnisha Topknot (Nhục kế trên đầu Phật)
-      ctx.beginPath();
-      ctx.arc(buddhaX, buddhaY - 63, 7, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Plaque Calligraphy
-      ctx.font = 'bold 11px serif';
-      ctx.fillStyle = '#fef08a';
-      ctx.textAlign = 'center';
-      ctx.fillText('NAM MÔ A DI ĐÀ PHẬT', buddhaX, buddhaY + 74);
-
-      // Offering cushions around Buddha for players to bow
-      const buddhaCushions = [
-        { x: buddhaX - 45, y: buddhaY + 80 },
-        { x: buddhaX, y: buddhaY + 88 },
-        { x: buddhaX + 45, y: buddhaY + 80 },
-      ];
-      for (const c of buddhaCushions) {
-        ctx.fillStyle = '#991b1b';
-        ctx.beginPath();
-        ctx.ellipse(c.x, c.y, 16, 9, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
-      // --- ZONE 3: LẦU CHUÔNG & MÕ KHỔNG LỒ (Center-Right: 1600, 530) ---
-      const bellX = 1600;
-      const bellY = 530;
-
-      // Octagonal Bell Gazebo Pavilion Base
-      ctx.fillStyle = '#292524';
-      ctx.beginPath();
-      ctx.ellipse(bellX, bellY + 30, 85, 48, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(templeX - 250, templeY - 70, 500, 150);
       ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(templeX - 250, templeY - 70, 500, 150);
+
+      // Entrance Stairs
+      ctx.fillStyle = '#44403c';
+      ctx.fillRect(templeX - 80, templeY + 80, 160, 40);
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(templeX - 80, templeY + 80, 160, 40);
+
+      // Red carpet
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fillRect(templeX - 35, templeY + 40, 70, 80);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(templeX - 35, templeY + 40, 70, 80);
+
+      // Main Pagoda Wall & Red Pillars
+      ctx.fillStyle = '#450a0a';
+      ctx.fillRect(templeX - 220, templeY - 60, 440, 130);
+      ctx.fillStyle = '#991b1b';
+      for (let px = -200; px <= 200; px += 80) {
+        ctx.fillRect(templeX + px - 7, templeY - 60, 14, 130);
+      }
+
+      // Curved Pagoda Roof
+      ctx.fillStyle = '#78350f';
+      ctx.beginPath();
+      ctx.moveTo(templeX - 290, templeY - 55);
+      ctx.quadraticCurveTo(templeX - 210, templeY - 95, templeX - 130, templeY - 110);
+      ctx.lineTo(templeX, templeY - 125);
+      ctx.lineTo(templeX + 130, templeY - 110);
+      ctx.quadraticCurveTo(templeX + 210, templeY - 95, templeX + 290, templeY - 55);
+      ctx.quadraticCurveTo(templeX, templeY - 80, templeX - 290, templeY - 55);
+      ctx.fill();
+      ctx.strokeStyle = '#f59e0b';
       ctx.lineWidth = 2.5;
       ctx.stroke();
 
-      // Pillars
-      ctx.fillStyle = '#7f1d1d';
-      ctx.fillRect(bellX - 65, bellY - 50, 10, 80);
-      ctx.fillRect(bellX + 55, bellY - 50, 10, 80);
-      ctx.fillRect(bellX - 25, bellY - 60, 10, 90);
-      ctx.fillRect(bellX + 15, bellY - 60, 10, 90);
-
-      // Gazebo Roof
-      ctx.fillStyle = '#78350f';
+      // Spire
+      ctx.fillStyle = '#f59e0b';
       ctx.beginPath();
-      ctx.moveTo(bellX - 95, bellY - 50);
-      ctx.lineTo(bellX, bellY - 100);
-      ctx.lineTo(bellX + 95, bellY - 50);
+      ctx.moveTo(templeX, templeY - 150);
+      ctx.lineTo(templeX - 14, templeY - 120);
+      ctx.lineTo(templeX + 14, templeY - 120);
       ctx.closePath();
       ctx.fill();
+
+      // Plaque
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(templeX - 95, templeY - 35, 190, 26);
       ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(templeX - 95, templeY - 35, 190, 26);
+      ctx.font = 'bold 12px serif';
+      ctx.fillStyle = '#fbbf24';
+      ctx.textAlign = 'center';
+      ctx.fillText('ĐẠI HÙNG BẢO ĐIỆN', templeX, templeY - 17);
+
+      // Entrance Doorway Marker
+      ctx.fillStyle = '#1c1917';
+      ctx.fillRect(templeX - 26, templeY + 45, 52, 35);
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(templeX - 26, templeY + 45, 52, 35);
+      ctx.font = 'bold 9px system-ui';
+      ctx.fillStyle = '#fef08a';
+      ctx.fillText('CHÁNH ĐIỆN', templeX, templeY + 66);
+
+      // Incense Cauldron
+      ctx.fillStyle = '#292524';
+      ctx.beginPath();
+      ctx.ellipse(templeX, templeY + 130, 28, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#d97706';
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Giant Bronze Temple Bell (Đại Hồng Chung) hanging in pavilion
-      ctx.fillStyle = '#b45309';
+      // Smoke
+      ctx.strokeStyle = 'rgba(254, 243, 199, 0.4)';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(bellX - 26, bellY - 10);
-      ctx.bezierCurveTo(bellX - 30, bellY + 25, bellX - 20, bellY + 35, bellX - 26, bellY + 40);
-      ctx.lineTo(bellX + 26, bellY + 40);
-      ctx.bezierCurveTo(bellX + 20, bellY + 35, bellX + 30, bellY + 25, bellX + 26, bellY - 10);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 1.8;
+      ctx.moveTo(templeX - 4, templeY + 120);
+      ctx.bezierCurveTo(templeX - 16, templeY + 95, templeX + 12, templeY + 75, templeX - 2, templeY + 50);
       ctx.stroke();
 
+      // --- ZONE 3: ĐIỆN QUÁN THẾ ÂM (800, 500) ---
+      const quanAmX = 800;
+      const quanAmY = 500;
+
+      ctx.fillStyle = '#292524';
+      ctx.fillRect(quanAmX - 150, quanAmY - 40, 300, 100);
+      ctx.strokeStyle = '#0284c7';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(quanAmX - 150, quanAmY - 40, 300, 100);
+
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.moveTo(quanAmX - 180, quanAmY - 35);
+      ctx.quadraticCurveTo(quanAmX, quanAmY - 75, quanAmX + 180, quanAmY - 35);
+      ctx.quadraticCurveTo(quanAmX, quanAmY - 50, quanAmX - 180, quanAmY - 35);
+      ctx.fill();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(quanAmX - 75, quanAmY - 24, 150, 20);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(quanAmX - 75, quanAmY - 24, 150, 20);
       ctx.font = 'bold 11px serif';
-      ctx.fillStyle = '#fef3c7';
-      ctx.fillText('ĐẠI HỒNG CHUNG', bellX, bellY + 68);
+      ctx.fillStyle = '#7dd3fc';
+      ctx.fillText('ĐIỆN QUÁN THẾ ÂM', quanAmX, quanAmY - 10);
 
-      // --- ZONE 4: HỒ SEN TỊNH TÂM & CẦU GỖ ĐỎ (Bottom-Left: 460, 1060) ---
-      const pondX = 460;
-      const pondY = 1060;
-
-      // Natural Winding Lake
-      ctx.fillStyle = 'rgba(12, 74, 110, 0.7)';
+      // White Marble Avalokiteshvara Statue
+      const haloQAGrad = ctx.createRadialGradient(quanAmX, quanAmY - 110, 10, quanAmX, quanAmY - 110, 75);
+      haloQAGrad.addColorStop(0, 'rgba(56, 189, 248, 0.45)');
+      haloQAGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+      ctx.fillStyle = haloQAGrad;
       ctx.beginPath();
-      ctx.ellipse(pondX, pondY, 180, 120, 0.15, 0, Math.PI * 2);
+      ctx.arc(quanAmX, quanAmY - 110, 75, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-      ctx.lineWidth = 3;
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.ellipse(quanAmX, quanAmY - 70, 22, 38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(quanAmX, quanAmY - 115, 14, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
 
-      // Swimming Koi Fish in Pond
-      const koiPositions = [
-        { x: pondX - 70, y: pondY - 30, color: '#f97316' },
-        { x: pondX + 50, y: pondY + 25, color: '#ef4444' },
-        { x: pondX - 20, y: pondY + 50, color: '#f59e0b' },
-      ];
-      for (const koi of koiPositions) {
-        ctx.fillStyle = koi.color;
-        ctx.beginPath();
-        ctx.ellipse(koi.x, koi.y, 8, 4, time * 0.002, 0, Math.PI * 2);
-        ctx.fill();
+      // Doorway marker
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(quanAmX - 24, quanAmY + 35, 48, 25);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(quanAmX - 24, quanAmY + 35, 48, 25);
+      ctx.font = 'bold 8px system-ui';
+      ctx.fillStyle = '#7dd3fc';
+      ctx.fillText('CỬA ĐIỆN', quanAmX, quanAmY + 50);
+
+      // --- ZONE 4: THIỀN ĐƯỜNG TRÚC LÂM (2800, 500) ---
+      const thienX = 2800;
+      const thienY = 500;
+
+      ctx.fillStyle = '#292524';
+      ctx.fillRect(thienX - 160, thienY - 40, 320, 100);
+      ctx.strokeStyle = '#15803d';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(thienX - 160, thienY - 40, 320, 100);
+
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(thienX - 140, thienY - 30, 280, 80);
+      for (let bx = -130; bx <= 130; bx += 20) {
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(thienX + bx, thienY - 30, 4, 80);
       }
+
+      ctx.fillStyle = '#14532d';
+      ctx.beginPath();
+      ctx.moveTo(thienX - 190, thienY - 35);
+      ctx.quadraticCurveTo(thienX, thienY - 80, thienX + 190, thienY - 35);
+      ctx.quadraticCurveTo(thienX, thienY - 50, thienX - 190, thienY - 35);
+      ctx.fill();
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = '#052e16';
+      ctx.fillRect(thienX - 85, thienY - 24, 170, 20);
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(thienX - 85, thienY - 24, 170, 20);
+      ctx.font = 'bold 11px serif';
+      ctx.fillStyle = '#86efac';
+      ctx.fillText('THIỀN ĐƯỜNG TRÚC LÂM', thienX, thienY - 10);
+
+      // Doorway marker
+      ctx.fillStyle = '#052e16';
+      ctx.fillRect(thienX - 24, thienY + 35, 48, 25);
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(thienX - 24, thienY + 35, 48, 25);
+      ctx.font = 'bold 8px system-ui';
+      ctx.fillStyle = '#86efac';
+      ctx.fillText('CỬA THIỀN', thienX, thienY + 50);
+
+      // Bamboo stalks
+      for (let b = -180; b <= 180; b += 35) {
+        if (Math.abs(b) > 40) {
+          ctx.strokeStyle = '#22c55e';
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(thienX + b, thienY + 90);
+          ctx.lineTo(thienX + b + Math.sin(time * 0.002 + b) * 8, thienY - 90);
+          ctx.stroke();
+        }
+      }
+
+      // --- ZONE 5: HỒ SEN TỊNH TÂM (900, 1500) ---
+      const pondX = 900;
+      const pondY = 1500;
+
+      ctx.fillStyle = 'rgba(12, 74, 110, 0.75)';
+      ctx.beginPath();
+      ctx.ellipse(pondX, pondY, 230, 150, 0.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
 
       // Floating Lotus Pads & Flowers
       const lotuses = [
-        { x: pondX - 110, y: pondY - 10 },
-        { x: pondX - 40, y: pondY - 60 },
-        { x: pondX + 90, y: pondY - 20 },
-        { x: pondX + 60, y: pondY + 60 },
+        { x: pondX - 140, y: pondY - 20 },
+        { x: pondX - 50, y: pondY - 80 },
+        { x: pondX + 110, y: pondY - 40 },
+        { x: pondX + 70, y: pondY + 80 },
+        { x: pondX - 80, y: pondY + 60 },
       ];
       for (const l of lotuses) {
         ctx.fillStyle = '#065f46';
         ctx.beginPath();
-        ctx.arc(l.x, l.y, 16, 0, Math.PI * 1.8);
+        ctx.arc(l.x, l.y, 17, 0, Math.PI * 1.8);
         ctx.fill();
-        ctx.font = '16px serif';
+        ctx.font = '17px serif';
         ctx.fillText('🪷', l.x - 7, l.y + 6);
       }
 
-      // Traditional Red Wooden Arched Bridge (Cầu Gỗ Đỏ bắc qua hồ sen)
+      // Red Arched Bridge across Lotus Pond
       ctx.strokeStyle = '#991b1b';
-      ctx.lineWidth = 26;
+      ctx.lineWidth = 28;
       ctx.beginPath();
-      ctx.moveTo(pondX - 80, pondY + 80);
-      ctx.quadraticCurveTo(pondX, pondY - 20, pondX + 80, pondY - 70);
+      ctx.moveTo(pondX - 100, pondY + 90);
+      ctx.quadraticCurveTo(pondX, pondY - 30, pondX + 100, pondY - 80);
       ctx.stroke();
 
-      // Bridge Railings
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(pondX - 100, pondY + 76);
+      ctx.quadraticCurveTo(pondX, pondY - 44, pondX + 100, pondY - 94);
+      ctx.stroke();
+
+      ctx.font = 'bold 12px serif';
+      ctx.fillStyle = '#7dd3fc';
+      ctx.fillText('HỒ SEN TỊNH TÂM 🪷', pondX, pondY + 175);
+
+      // --- ZONE 6: HỒ PHÓNG SINH BÁT NHÃ (2700, 1500) ---
+      const lakeX = 2700;
+      const lakeY = 1500;
+
+      ctx.fillStyle = 'rgba(8, 47, 73, 0.8)';
+      ctx.beginPath();
+      ctx.ellipse(lakeX, lakeY, 250, 160, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(14, 165, 233, 0.45)';
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+
+      // Wooden Pier Dock (Bến Gỗ Phóng Sinh)
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(lakeX - 160, lakeY - 25, 90, 50);
       ctx.strokeStyle = '#f59e0b';
       ctx.lineWidth = 2;
+      ctx.strokeRect(lakeX - 160, lakeY - 25, 90, 50);
+
+      for (let pl = -150; pl < -75; pl += 14) {
+        ctx.strokeStyle = '#451a03';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(lakeX + pl, lakeY - 25);
+        ctx.lineTo(lakeX + pl, lakeY + 25);
+        ctx.stroke();
+      }
+
+      // Floating Lanterns
+      const lanternsFloating = [
+        { x: lakeX + 40, y: lakeY - 50 },
+        { x: lakeX + 110, y: lakeY + 20 },
+        { x: lakeX - 20, y: lakeY + 70 },
+      ];
+      for (const lf of lanternsFloating) {
+        const bobL = Math.sin(time * 0.003 + lf.x) * 3;
+        ctx.font = '16px serif';
+        ctx.fillText('🕯️', lf.x, lf.y + bobL);
+      }
+
+      ctx.font = 'bold 12px serif';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('HỒ PHÓNG SINH BÁT NHÃ 🐟', lakeX, lakeY + 185);
+
+      // --- SIMULATE & DRAW SWIMMING FISH IN BOTH LAKES ---
+      for (const fish of activeFishesRef.current) {
+        const lake = LAKES.find((l) => l.id === fish.lakeId) || LAKES[0];
+        fish.x += fish.vx;
+        fish.y += fish.vy;
+        fish.tailPhase += dt * 10;
+
+        // Keep inside lake elliptical bounds
+        const fdx = fish.x - lake.x;
+        const fdy = fish.y - lake.y;
+        const normDist = (fdx * fdx) / ((lake.radiusX - 30) * (lake.radiusX - 30)) + (fdy * fdy) / ((lake.radiusY - 25) * (lake.radiusY - 25));
+        if (normDist > 1) {
+          fish.vx -= (fdx / lake.radiusX) * 0.12;
+          fish.vy -= (fdy / lake.radiusY) * 0.12;
+        }
+
+        fish.angle = Math.atan2(fish.vy, fish.vx);
+
+        ctx.save();
+        ctx.translate(fish.x, fish.y);
+        ctx.rotate(fish.angle);
+
+        // Fish Shadow
+        ctx.fillStyle = 'rgba(0, 20, 30, 0.35)';
+        ctx.beginPath();
+        ctx.ellipse(-2, 3, fish.size, fish.size * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Fish Body
+        ctx.fillStyle = fish.color;
+        ctx.beginPath();
+        ctx.moveTo(fish.size, 0);
+        ctx.quadraticCurveTo(0, fish.size * 0.55, -fish.size * 0.7, 0);
+        ctx.quadraticCurveTo(0, -fish.size * 0.55, fish.size, 0);
+        ctx.fill();
+
+        // Wagging Tail
+        const tailWag = Math.sin(fish.tailPhase) * (fish.size * 0.45);
+        ctx.beginPath();
+        ctx.moveTo(-fish.size * 0.7, 0);
+        ctx.lineTo(-fish.size * 1.5, tailWag - fish.size * 0.35);
+        ctx.lineTo(-fish.size * 1.25, tailWag);
+        ctx.lineTo(-fish.size * 1.5, tailWag + fish.size * 0.35);
+        ctx.closePath();
+        ctx.fill();
+
+        // Eye
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(fish.size * 0.55, -fish.size * 0.18, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(fish.size * 0.6, -fish.size * 0.18, 0.9, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // Draw Splash Ripples from newly released fish
+      for (let i = splashRipplesRef.current.length - 1; i >= 0; i--) {
+        const sr = splashRipplesRef.current[i];
+        sr.radius += 1.8;
+        sr.alpha -= 0.025;
+        if (sr.alpha <= 0 || sr.radius >= sr.maxRadius) {
+          splashRipplesRef.current.splice(i, 1);
+        } else {
+          ctx.strokeStyle = `rgba(56, 189, 248, ${sr.alpha})`;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.ellipse(sr.x, sr.y, sr.radius * 1.4, sr.radius * 0.7, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+      // --- ZONE 7: TÂM QUẢNG TRƯỜNG: CÂY BỒ ĐỀ CỔ THỤ & BẢO THÁP (1800, 1200) ---
+      const treeX = 1740;
+      const treeY = 1200;
+      const stupaX = 1870;
+      const stupaY = 1180;
+
+      // Courtyard circle
+      ctx.fillStyle = 'rgba(120, 53, 15, 0.25)';
       ctx.beginPath();
-      ctx.moveTo(pondX - 80, pondY + 68);
-      ctx.quadraticCurveTo(pondX, pondY - 32, pondX + 80, pondY - 82);
+      ctx.ellipse(1800, 1200, 180, 110, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+      ctx.lineWidth = 3;
       ctx.stroke();
 
-      ctx.font = 'bold 11px serif';
-      ctx.fillStyle = '#7dd3fc';
-      ctx.fillText('HỒ SEN TỊNH TÂM', pondX, pondY + 140);
-
-      // --- ZONE 5: VƯỜN BỒ ĐỀ CỔ THỤ & BẢO THÁP (Bottom-Right: 1600, 1050) ---
-      const treeX = 1520;
-      const treeY = 1060;
-      const stupaX = 1720;
-      const stupaY = 1040;
-
-      // Ancient Sacred Bodhi Tree Canopy
-      ctx.fillStyle = 'rgba(20, 83, 45, 0.85)';
+      // Bodhi Tree Canopy
+      ctx.fillStyle = 'rgba(20, 83, 45, 0.88)';
       ctx.beginPath();
       ctx.arc(treeX, treeY - 60, 95, 0, Math.PI * 2);
       ctx.fill();
@@ -1922,7 +2402,7 @@ export const ZenPlaza: React.FC = () => {
       ctx.arc(treeX + 40, treeY - 80, 65, 0, Math.PI * 2);
       ctx.fill();
 
-      // Bodhi Tree Gnarled Trunk
+      // Trunk
       ctx.fillStyle = '#451a03';
       ctx.beginPath();
       ctx.moveTo(treeX - 25, treeY + 35);
@@ -1931,9 +2411,9 @@ export const ZenPlaza: React.FC = () => {
       ctx.closePath();
       ctx.fill();
 
-      // Hanging Prayer Ribbons (Dải lụa cầu an bay phất phơ)
+      // Ribbons
       ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.moveTo(treeX - 35, treeY - 45);
       ctx.lineTo(treeX - 30, treeY - 5);
@@ -1944,84 +2424,39 @@ export const ZenPlaza: React.FC = () => {
       ctx.lineTo(treeX + 25, treeY - 10);
       ctx.stroke();
 
-      // 7-Tier Ancient Stone Stupa Pagoda (Bảo Tháp Xá Lợi)
+      // 7-Tier Ancient Stone Stupa Pagoda
       ctx.fillStyle = '#44403c';
-      for (let tier = 0; tier < 6; tier++) {
-        const ty = stupaY + 20 - tier * 16;
-        const tw = 48 - tier * 7;
+      for (let tier = 0; tier < 7; tier++) {
+        const ty = stupaY + 25 - tier * 16;
+        const tw = 50 - tier * 6;
         ctx.fillRect(stupaX - tw / 2, ty, tw, 12);
-        // Roof eave
         ctx.fillStyle = '#78350f';
         ctx.fillRect(stupaX - (tw + 10) / 2, ty - 3, tw + 10, 4);
         ctx.fillStyle = '#44403c';
       }
-      // Stupa Spire
+      // Spire
       ctx.fillStyle = '#f59e0b';
       ctx.beginPath();
-      ctx.moveTo(stupaX, stupaY - 95);
-      ctx.lineTo(stupaX - 5, stupaY - 76);
-      ctx.lineTo(stupaX + 5, stupaY - 76);
+      ctx.moveTo(stupaX, stupaY - 105);
+      ctx.lineTo(stupaX - 6, stupaY - 85);
+      ctx.lineTo(stupaX + 6, stupaY - 85);
       ctx.closePath();
       ctx.fill();
 
       ctx.font = 'bold 11px serif';
       ctx.fillStyle = '#86efac';
-      ctx.fillText('CÂY BỒ ĐỀ & BẢO THÁP', treeX + 80, treeY + 68);
+      ctx.fillText('BỒ ĐỀ CỔ THỤ & BẢO THÁP', 1800, 1265);
 
-      // --- ZONE 6: CENTRAL COURTYARD LOTUS ALTAR (Center: 1000, 680) ---
-      const centerX = 1000;
-      const centerY = 680;
-
-      ctx.fillStyle = 'rgba(120, 53, 15, 0.28)';
-      ctx.beginPath();
-      ctx.ellipse(centerX, centerY, 150, 85, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      // Grand Golden Singing Bowl
-      ctx.fillStyle = '#b45309';
-      ctx.beginPath();
-      ctx.ellipse(centerX, centerY - 10, 44, 24, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#f59e0b';
-      ctx.beginPath();
-      ctx.ellipse(centerX, centerY - 16, 38, 20, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.font = '32px serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('🪷', centerX, centerY - 28);
-
-      // 4 Meditation Cushions around central altar
-      const centralCushions = [
-        { x: centerX - 100, y: centerY },
-        { x: centerX + 100, y: centerY },
-        { x: centerX, y: centerY - 62 },
-        { x: centerX, y: centerY + 58 },
-      ];
-      for (const c of centralCushions) {
-        ctx.fillStyle = '#991b1b';
-        ctx.beginPath();
-        ctx.ellipse(c.x, c.y, 20, 11, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 1.4;
-        ctx.stroke();
-      }
-
-      // --- NATURE ELEMENTS: BUSHES, FLOWER CLUSTERS, STONE LANTERNS ---
-      // Lush Bushes (Bụi cỏ / Cây cảnh)
+      // Nature Elements: Bushes & Stone Lanterns
       const bushes = [
-        { x: 780, y: 380, r: 24 },
-        { x: 1220, y: 380, r: 24 },
-        { x: 620, y: 720, r: 28 },
-        { x: 1380, y: 720, r: 28 },
-        { x: 820, y: 980, r: 22 },
-        { x: 1180, y: 980, r: 22 },
-        { x: 260, y: 820, r: 32 },
-        { x: 1880, y: 820, r: 32 },
+        { x: 1650, y: 1950, r: 24 },
+        { x: 1950, y: 1950, r: 24 },
+        { x: 1650, y: 550, r: 28 },
+        { x: 1950, y: 550, r: 28 },
+        { x: 1200, y: 950, r: 26 },
+        { x: 2400, y: 950, r: 26 },
+        { x: 1350, y: 1650, r: 25 },
+        { x: 2250, y: 1650, r: 25 },
       ];
       for (const b of bushes) {
         ctx.fillStyle = '#166534';
@@ -2031,7 +2466,6 @@ export const ZenPlaza: React.FC = () => {
         ctx.arc(b.x + 12, b.y + 4, b.r * 0.75, 0, Math.PI * 2);
         ctx.fill();
 
-        // Wildflower spots on bush
         ctx.fillStyle = '#fbbf24';
         ctx.beginPath();
         ctx.arc(b.x - 6, b.y - 6, 2.5, 0, Math.PI * 2);
@@ -2039,23 +2473,20 @@ export const ZenPlaza: React.FC = () => {
         ctx.fill();
       }
 
-      // Stone Lanterns (Đèn đá thắp nến ấm áp) along pathways
+      // Stone Lanterns
       const lanterns = [
-        { x: 880, y: 440 },
-        { x: 1120, y: 440 },
-        { x: 760, y: 640 },
-        { x: 1240, y: 640 },
-        { x: 820, y: 850 },
-        { x: 1180, y: 850 },
+        { x: 1720, y: 1850 },
+        { x: 1880, y: 1850 },
+        { x: 1720, y: 650 },
+        { x: 1880, y: 650 },
+        { x: 1250, y: 1200 },
+        { x: 2350, y: 1200 },
       ];
       for (const lt of lanterns) {
-        // Pedestal
         ctx.fillStyle = '#44403c';
         ctx.fillRect(lt.x - 6, lt.y - 12, 12, 16);
-        // Lantern chamber
         ctx.fillStyle = '#f59e0b';
         ctx.fillRect(lt.x - 5, lt.y - 20, 10, 8);
-        // Roof cap
         ctx.fillStyle = '#292524';
         ctx.beginPath();
         ctx.moveTo(lt.x - 10, lt.y - 20);
@@ -2064,7 +2495,6 @@ export const ZenPlaza: React.FC = () => {
         ctx.closePath();
         ctx.fill();
 
-        // Candlelight soft glow
         const glow = ctx.createRadialGradient(lt.x, lt.y - 16, 2, lt.x, lt.y - 16, 26);
         glow.addColorStop(0, 'rgba(251, 191, 36, 0.45)');
         glow.addColorStop(1, 'rgba(251, 191, 36, 0)');
@@ -2248,6 +2678,19 @@ export const ZenPlaza: React.FC = () => {
         ctx.ellipse(px, py + 2, 17, 7, 0, 0, Math.PI * 2);
         ctx.fill();
 
+        // Karma Shadow Mist if player has negative merits!
+        const meritVal = p.merits ?? 0;
+        if (meritVal < 0) {
+          ctx.fillStyle = 'rgba(24, 18, 22, 0.45)';
+          for (let m = 0; m < 3; m++) {
+            const mx = px + Math.sin(time * 0.004 + m * 2) * 12;
+            const my = py - 6 - ((time * 0.025 + m * 7) % 20);
+            ctx.beginPath();
+            ctx.arc(mx, my, 5 + m * 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
         // Aura Glow if praying or meditating
         if (pAction === 'pray' || pAction === 'sit') {
           const auraPulse = Math.sin(time * 0.005) * 5;
@@ -2430,8 +2873,8 @@ export const ZenPlaza: React.FC = () => {
           ctx.fillText('🪷', px, currentHeadY - headRadius - 2);
         }
 
-        // Nametag Badge
-        const tagY = currentHeadY - headRadius - (p.hat !== 'none' ? 14 : 8);
+        // --- BẢNG TÊN & CÔNG ĐỨC DƯỚI CHÂN NHÂN VẬT (Foot Nameplate & Merits) ---
+        const feetTagY = py + 14;
         ctx.font = 'bold 11px system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -2439,39 +2882,59 @@ export const ZenPlaza: React.FC = () => {
         const tagText = p.isLocal ? `⭐ Bạn (${p.name})` : p.name;
         const textMetrics = ctx.measureText(tagText);
         const tagW = textMetrics.width + 14;
-        const tagH = 18;
+        const tagH = 17;
 
+        // Pill nền mờ dưới chân
         ctx.fillStyle = p.isLocal ? 'rgba(245, 158, 11, 0.95)' : 'rgba(28, 25, 23, 0.85)';
         ctx.beginPath();
-        ctx.roundRect(px - tagW / 2, tagY - tagH / 2, tagW, tagH, 9);
+        ctx.roundRect(px - tagW / 2, feetTagY - tagH / 2, tagW, tagH, 8);
         ctx.fill();
         ctx.strokeStyle = p.isLocal ? '#fbbf24' : 'rgba(120, 113, 108, 0.5)';
         ctx.lineWidth = 1;
         ctx.stroke();
 
         ctx.fillStyle = p.isLocal ? '#1c1917' : '#f5f5f4';
-        ctx.fillText(tagText, px, tagY);
+        ctx.fillText(tagText, px, feetTagY);
 
-        // MERIT BADGE & WEAPON STATUS DISPLAYED RIGHT NEXT TO PLAYER:
-        const meritVal = p.merits ?? 0;
+        // MERIT BADGE & WEAPON DƯỚI BẢNG TÊN:
+        const meritLineY = feetTagY + 16;
         const weaponIcon = p.weapon === 'gun' ? ' 🔫' : p.weapon === 'hammer' ? ' 🔨' : p.weapon === 'knife' ? ' 🔪' : '';
-        const statStr = `✨${meritVal}${weaponIcon}`;
+        const statStr = meritVal < 0 ? `⚠️${meritVal}${weaponIcon}` : `✨${meritVal}${weaponIcon}`;
         ctx.font = 'bold 10px monospace';
         const mMetrics = ctx.measureText(statStr);
         const mW = mMetrics.width + 12;
-        const mH = 16;
-        const mX = px + tagW / 2 + mW / 2 + 3;
+        const mH = 15;
 
-        ctx.fillStyle = 'rgba(15, 12, 10, 0.88)';
+        ctx.fillStyle = meritVal < 0 ? 'rgba(45, 10, 10, 0.92)' : 'rgba(15, 12, 10, 0.88)';
         ctx.beginPath();
-        ctx.roundRect(mX - mW / 2, tagY - mH / 2, mW, mH, 7);
+        ctx.roundRect(px - mW / 2, meritLineY - mH / 2, mW, mH, 7);
         ctx.fill();
-        ctx.strokeStyle = p.weapon ? '#ef4444' : '#f59e0b';
+        ctx.strokeStyle = meritVal < 0 ? '#ef4444' : p.weapon ? '#ef4444' : '#f59e0b';
         ctx.lineWidth = 1.2;
         ctx.stroke();
 
-        ctx.fillStyle = p.weapon ? '#fca5a5' : '#fef08a';
-        ctx.fillText(statStr, mX, tagY);
+        ctx.fillStyle = meritVal < 0 ? '#fca5a5' : p.weapon ? '#fca5a5' : '#fef08a';
+        ctx.fillText(statStr, px, meritLineY);
+
+        // FUNNY KARMIC TITLE IF MERITS < 0 (DƯỚI DÒNG ĐIỂM):
+        if (meritVal < 0) {
+          const karmicTitle =
+            meritVal >= -10
+              ? '[😅 Nợ Nghiệp Quấn Thân]'
+              : meritVal >= -30
+              ? '[😈 Nghịch Tử Cửa Phật]'
+              : '[💀 Chúa Chổm Công Đức]';
+          const titleColor =
+            meritVal >= -10 ? '#fb923c' : meritVal >= -30 ? '#f43f5e' : '#dc2626';
+
+          const karmicTitleY = meritLineY + 14;
+          ctx.font = 'bold 9px system-ui';
+          ctx.fillStyle = titleColor;
+          ctx.fillText(karmicTitle, px, karmicTitleY);
+        }
+
+        // --- BONG BÓNG CHAT & BẠI TRẬN TRÊN ĐẦU NHÂN VẬT ---
+        const headTopY = currentHeadY - headRadius - (p.hat !== 'none' ? 16 : 8);
 
         // RESULT SPEECH BUBBLE FOR DEFEATED PLAYER:
         const isDefeated = p.defeatUntil && p.defeatUntil > Date.now();
@@ -2483,7 +2946,42 @@ export const ZenPlaza: React.FC = () => {
           const dtMetrics = ctx.measureText(defeatText);
           const bubbleW = dtMetrics.width + 20;
           const bubbleH = 26;
-          const bubbleY = tagY - 25;
+          const bubbleY = headTopY - 14;
+
+          ctx.save();
+          // Dark ominous defeat bubble with pulsing red border
+          const pulse = Math.sin(time * 0.008) * 0.2 + 0.8;
+          ctx.fillStyle = 'rgba(38, 10, 10, 0.95)';
+          ctx.beginPath();
+          ctx.roundRect(px - bubbleW / 2, bubbleY - bubbleH / 2, bubbleW, bubbleH, 12);
+          ctx.fill();
+          ctx.strokeStyle = `rgba(239, 68, 68, ${pulse})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Bubble pointer pointing down to stickman head
+          ctx.beginPath();
+          ctx.moveTo(px - 5, bubbleY + bubbleH / 2);
+          ctx.lineTo(px, bubbleY + bubbleH / 2 + 6);
+          ctx.lineTo(px + 5, bubbleY + bubbleH / 2);
+          ctx.fillStyle = 'rgba(38, 10, 10, 0.95)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+          ctx.stroke();
+
+          ctx.fillStyle = '#fca5a5';
+          ctx.fillText(defeatText, px, bubbleY);
+          ctx.restore();
+        } else if (p.chatText && p.chatTime && Date.now() - p.chatTime < 5500) {
+          // Regular speech bubble only if player is not defeated
+          const age = Date.now() - p.chatTime;
+          const bubbleAlpha = age > 4600 ? (5500 - age) / 900 : 1;
+
+          ctx.font = '12px serif';
+          const chatMetrics = ctx.measureText(p.chatText);
+          const bubbleW = chatMetrics.width + 18;
+          const bubbleH = 26;
+          const bubbleY = headTopY - 14;
 
           ctx.save();
           // Dark ominous defeat bubble with pulsing red border
@@ -2547,46 +3045,64 @@ export const ZenPlaza: React.FC = () => {
 
       ctx.restore(); // Restore camera translation
 
-      // --- 6. DRAW HUD: MINIMAP RADAR IN TOP-LEFT CORNER ---
-      const mapW = 140;
-      const mapH = 90;
+      // --- 6. DRAW HUD: MINIMAP RADAR IN TOP-LEFT CORNER (SCALED FOR 3600 x 2200) ---
+      const mapW = 160;
+      const mapH = 98;
       const mapX = 14;
       const mapY = 14;
 
       // Minimap background
-      ctx.fillStyle = 'rgba(28, 25, 23, 0.85)';
+      ctx.fillStyle = 'rgba(28, 25, 23, 0.88)';
       ctx.beginPath();
       ctx.roundRect(mapX, mapY, mapW, mapH, 12);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
       const scaleMiniX = mapW / WORLD_WIDTH;
       const scaleMiniY = mapH / WORLD_HEIGHT;
 
-      // Minimap landmarks
-      // Temple
+      // Tam Quan Gate
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(mapX + (gateX - 50) * scaleMiniX, mapY + (gateY - 10) * scaleMiniY, 100 * scaleMiniX, 20 * scaleMiniY);
+
+      // Dai Hung Temple
       ctx.fillStyle = '#991b1b';
-      ctx.fillRect(mapX + (templeX - 80) * scaleMiniX, mapY + (templeY - 40) * scaleMiniY, 160 * scaleMiniX, 80 * scaleMiniY);
-      // Buddha
-      ctx.fillStyle = '#f59e0b';
-      ctx.beginPath();
-      ctx.arc(mapX + buddhaX * scaleMiniX, mapY + buddhaY * scaleMiniY, 4, 0, Math.PI * 2);
-      ctx.fill();
-      // Pond
+      ctx.fillRect(mapX + (templeX - 90) * scaleMiniX, mapY + (templeY - 40) * scaleMiniY, 180 * scaleMiniX, 80 * scaleMiniY);
+
+      // Quan Am Shrine
       ctx.fillStyle = '#0284c7';
       ctx.beginPath();
-      ctx.ellipse(mapX + pondX * scaleMiniX, mapY + pondY * scaleMiniY, 180 * scaleMiniX, 120 * scaleMiniY, 0, 0, Math.PI * 2);
+      ctx.arc(mapX + quanAmX * scaleMiniX, mapY + quanAmY * scaleMiniY, 4, 0, Math.PI * 2);
       ctx.fill();
-      // Bodhi
+
+      // Thien Duong
+      ctx.fillStyle = '#15803d';
+      ctx.beginPath();
+      ctx.arc(mapX + thienX * scaleMiniX, mapY + thienY * scaleMiniY, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Lotus Pond
+      ctx.fillStyle = '#0369a1';
+      ctx.beginPath();
+      ctx.ellipse(mapX + pondX * scaleMiniX, mapY + pondY * scaleMiniY, 230 * scaleMiniX, 150 * scaleMiniY, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Liberation Pond
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.ellipse(mapX + lakeX * scaleMiniX, mapY + lakeY * scaleMiniY, 250 * scaleMiniX, 160 * scaleMiniY, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bodhi tree & Stupa
       ctx.fillStyle = '#16a34a';
       ctx.beginPath();
-      ctx.arc(mapX + treeX * scaleMiniX, mapY + treeY * scaleMiniY, 7, 0, Math.PI * 2);
+      ctx.arc(mapX + 1800 * scaleMiniX, mapY + 1200 * scaleMiniY, 6, 0, Math.PI * 2);
       ctx.fill();
 
       // Viewport Camera Rect on minimap
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
       ctx.lineWidth = 1;
       ctx.strokeRect(mapX + camX * scaleMiniX, mapY + camY * scaleMiniY, canvas.width * scaleMiniX, canvas.height * scaleMiniY);
 
@@ -2595,7 +3111,7 @@ export const ZenPlaza: React.FC = () => {
         const isWeapon = orb.type === 'gun' || orb.type === 'hammer' || orb.type === 'knife';
         ctx.fillStyle = isWeapon ? '#ef4444' : '#fbbf24';
         ctx.beginPath();
-        ctx.arc(mapX + orb.x * scaleMiniX, mapY + orb.y * scaleMiniY, isWeapon ? 2 : 1.4, 0, Math.PI * 2);
+        ctx.arc(mapX + orb.x * scaleMiniX, mapY + orb.y * scaleMiniY, isWeapon ? 2 : 1.3, 0, Math.PI * 2);
         ctx.fill();
       }
 
@@ -2610,7 +3126,7 @@ export const ZenPlaza: React.FC = () => {
       ctx.font = '9px system-ui';
       ctx.fillStyle = '#a8a29e';
       ctx.textAlign = 'left';
-      ctx.fillText('Bản Đồ Tu Viện', mapX + 6, mapY + mapH - 5);
+      ctx.fillText('Đại Bản Đồ Tu Viện', mapX + 6, mapY + mapH - 5);
 
       requestRef.current = requestAnimationFrame(render);
     };
@@ -2632,25 +3148,40 @@ export const ZenPlaza: React.FC = () => {
             <h2 className="text-sm font-bold font-serif text-amber-200 tracking-wide flex items-center gap-2">
               <span>Đại Tu Viện Tịnh Tâm</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-normal">
-                Bản đồ mở rộng 2200x1400
+                {currentScene === 'temple_interior' ? `Nội Điện: ${activeTemple?.name}` : 'Bản đồ mở rộng 3600x2200'}
               </span>
             </h2>
             <p className="text-[10px] text-stone-400">
-              Nhặt Công Đức (🪷 ✨ 🌟) • Cẩn Thận Hung Khí (🔫 Súng, 🔨 Búa, 🔪 Dao Bị Trừ Điểm) • So Kèo 1v1
+              Chiêm Bái 3 Đại Điện • Phóng Sinh Phước Lành • Nhặt Công Đức (🪷 ✨ 🌟) • Cẩn Thận Hung Khí (🔫 🔨 🔪)
             </p>
           </div>
         </div>
 
         {/* Right: Live Peers Count, Merits Counter, Weapon Badge & Profile Button */}
         <div className="flex items-center gap-2">
-          {/* Total Looted Merits Counter */}
+          {/* Total Looted Merits Counter (Shows red warning if negative) */}
           <div
-            className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/15 border border-amber-500/40 text-xs shadow-inner"
-            title="Số công đức bạn đã nhặt được trên toàn bản đồ"
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs shadow-inner ${
+              localMerits < 0
+                ? 'bg-red-950/60 border-red-500/70 text-red-300 animate-pulse'
+                : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+            }`}
+            title={localMerits < 0 ? 'Bạn đang bị ÂM công đức do nhặt hung khí hoặc thua cuộc!' : 'Số công đức bạn đã tích lũy'}
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-            <span className="text-[11px] text-amber-300/80 hidden sm:inline">Công Đức:</span>
-            <span className="font-mono text-amber-300 font-bold text-sm">{localMerits}</span>
+            {localMerits < 0 ? (
+              <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+            )}
+            <span className="text-[11px] opacity-80 hidden sm:inline">Công Đức:</span>
+            <span className={`font-mono font-bold text-sm ${localMerits < 0 ? 'text-red-400' : 'text-amber-300'}`}>
+              {localMerits}
+            </span>
+            {localMerits < 0 && (
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-red-800/60 text-red-200 font-bold hidden md:inline">
+                (Nợ Nghiệp)
+              </span>
+            )}
           </div>
 
           {/* Current Weapon (if holding weapon) */}
@@ -2712,7 +3243,7 @@ export const ZenPlaza: React.FC = () => {
           height={620}
           onClick={handleCanvasClick}
           className="w-full h-full block"
-          title="Nhấp chuột trên đất để di chuyển. Nhấp vào người chơi khác hoặc bấm phím L để Thách Đấu So Kèo Công Đức!"
+          title="Nhấp chuột trên đất để di chuyển. Tiến lại gần người chơi khác để So Kèo Thách Đấu."
         />
 
         {/* Locked Defeat Banner Overlay ("1 phút không thể đè") */}
@@ -2758,6 +3289,52 @@ export const ZenPlaza: React.FC = () => {
                   ? `⏳ Đang chờ ${pendingInviteTarget.name} chấp thuận...`
                   : `⚔️ So Kèo Gõ Mõ với ${nearbyOpponent.name}${nearbyOpponent.weapon ? ` (${nearbyOpponent.weapon === 'gun' ? '🔫' : nearbyOpponent.weapon === 'hammer' ? '🔨' : '🔪'})` : ''} (Phím L)`}
               </span>
+            </button>
+          </div>
+        )}
+
+        {/* Temple & Lake Action Prompts */}
+        {currentScene === 'temple_interior' && (
+          <>
+            <div className="absolute top-3 left-4 flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-950/85 border border-amber-500/50 text-amber-200 text-xs backdrop-blur-md z-30 shadow-lg">
+              <DoorOpen className="w-4 h-4 text-amber-400" />
+              <span>Nội Điện: <b>{activeTemple?.name}</b> • Bấm Space để gõ Mõ tích công đức!</span>
+            </div>
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 animate-in zoom-in-95 duration-150">
+              <button
+                onClick={handleExitTemple}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-stone-900 to-stone-800 border border-amber-500/60 hover:border-amber-400 hover:bg-stone-800 text-amber-300 font-bold text-xs shadow-2xl active:scale-95 transition-all"
+                title="Phím E: Bước ra lại sân tu viện để di chuyển tiếp"
+              >
+                <LogOut className="w-4 h-4 text-amber-400" />
+                <span>🚪 Bước Ra Sân Chùa (Phím E)</span>
+              </button>
+            </div>
+          </>
+        )}
+
+        {nearbyDoor && currentScene === 'plaza' && (
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 animate-in zoom-in-95 duration-150">
+            <button
+              onClick={() => handleEnterTemple(nearbyDoor)}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-stone-950 font-bold text-xs shadow-2xl shadow-amber-500/40 border border-amber-300 active:scale-95 transition-all animate-pulse"
+              title="Phím E: Bước vào chiêm bái Chánh Điện"
+            >
+              <DoorOpen className="w-4 h-4 text-stone-950" />
+              <span>⛩️ Bước Vào {nearbyDoor.name} (Phím E)</span>
+            </button>
+          </div>
+        )}
+
+        {nearbyLake && currentScene === 'plaza' && (
+          <div className="absolute bottom-16 right-4 z-30 animate-in zoom-in-95 duration-150">
+            <button
+              onClick={() => setShowFishModal(true)}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-stone-950 font-bold text-xs shadow-2xl shadow-cyan-500/40 border border-cyan-300 active:scale-95 transition-all animate-pulse"
+              title="Phím G: Mở bảng chọn loại cá để phóng sinh xuống hồ"
+            >
+              <Fish className="w-4 h-4 text-stone-950" />
+              <span>🐟 Phóng Sinh Cá ({nearbyLake.name}) [Phím G]</span>
             </button>
           </div>
         )}
@@ -3262,8 +3839,8 @@ export const ZenPlaza: React.FC = () => {
         </div>
       )}
 
-      {/* 7. Interactive 1v1 Wooden Fish Tapping Arena (Võ Đài Gõ Mõ) */}
-      {activeDuel && (
+      {/* 7. Interactive 1v1 Wooden Fish Tapping Arena (Võ Đài Gõ Mõ - chỉ hiển thị cho 2 người solo) */}
+      {activeDuel && (profile.id === activeDuel.playerAId || profile.id === activeDuel.playerBId) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/90 backdrop-blur-lg animate-in fade-in duration-200">
           <div className="w-full max-w-lg zen-glass p-6 rounded-3xl border-2 border-amber-500/80 shadow-2xl shadow-amber-500/30 space-y-5 text-center">
             {/* Arena Header */}
@@ -3371,6 +3948,96 @@ export const ZenPlaza: React.FC = () => {
             {/* Rule Footer */}
             <div className="text-[11px] text-stone-400">
               Thắng: <b>+10 Công Đức</b> • Hòa: <b>+2 Công Đức</b> • Thua: <b>-5 Công Đức</b> & nhận bong bóng bại trận <b>1 phút</b>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. Fish Release Modal (Nghi Thức Phóng Sinh Cá) */}
+      {showFishModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-lg zen-glass p-6 rounded-3xl border border-cyan-500/40 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-stone-800">
+              <div className="flex items-center gap-2.5 text-cyan-400">
+                <Fish className="w-5 h-5" />
+                <h3 className="font-serif font-bold text-base text-cyan-200">
+                  Nghi Thức Phóng Sinh Cá — {nearbyLake?.name || 'Hồ Nước'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowFishModal(false)}
+                className="p-1.5 rounded-full text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Current Merits Banner */}
+            <div
+              className={`p-3 rounded-2xl border flex items-center justify-between text-xs ${
+                localMerits < 0
+                  ? 'bg-red-950/40 border-red-500/50 text-red-300'
+                  : 'bg-cyan-950/30 border-cyan-500/30 text-cyan-200'
+              }`}
+            >
+              <span>Công Đức Hiện Có:</span>
+              <span
+                className={`font-mono font-bold text-sm ${
+                  localMerits < 0 ? 'text-red-400' : 'text-amber-300'
+                }`}
+              >
+                {localMerits} Điểm {localMerits < 0 && '(Đang Bị Âm ⚠️)'}
+              </span>
+            </div>
+
+            {localMerits < 0 && (
+              <div className="p-3 rounded-xl bg-red-900/30 border border-red-500/40 text-[11px] text-red-300 leading-relaxed">
+                ⚠️ <strong>Nợ nghiệp quấn thân:</strong> Điểm công đức của bạn đang bị âm! Không thể chuộc cá để phóng sinh. Hãy vào Chánh Điện gõ mõ hoặc lạy Phật sám hối để trả nợ trước.
+              </div>
+            )}
+
+            {/* Fish Catalog Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {FISH_CATALOG.map((fish) => {
+                const canAfford = localMerits >= fish.cost && localMerits > 0;
+                return (
+                  <div
+                    key={fish.id}
+                    className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${
+                      canAfford
+                        ? 'bg-stone-900/80 border-cyan-500/30 hover:border-cyan-400/60 shadow-md'
+                        : 'bg-stone-900/40 border-stone-800 opacity-60'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">{fish.icon}</span>
+                        <span
+                          className={`font-mono font-bold text-xs px-2 py-0.5 rounded-full ${
+                            canAfford ? 'bg-cyan-500/20 text-cyan-300' : 'bg-red-500/20 text-red-400'
+                          }`}
+                        >
+                          {fish.cost} Công Đức
+                        </span>
+                      </div>
+                      <h4 className="font-serif font-bold text-xs text-stone-200 mt-1">{fish.name}</h4>
+                      <p className="text-[10px] text-stone-400 mt-0.5 italic">{fish.blessing}</p>
+                    </div>
+
+                    <button
+                      onClick={() => handleReleaseFish(fish)}
+                      disabled={!canAfford}
+                      className={`mt-2.5 w-full py-1.5 rounded-xl font-bold text-xs transition-all ${
+                        canAfford
+                          ? 'bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-stone-950 shadow-md shadow-cyan-500/20 active:scale-95'
+                          : 'bg-stone-800 text-stone-500 cursor-not-allowed'
+                      }`}
+                    >
+                      {canAfford ? 'Phóng Sinh 🌊' : `Cần ${fish.cost} Điểm`}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
