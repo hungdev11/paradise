@@ -17,6 +17,10 @@ Tạo thêm các tương tác mang đậm nét văn hóa tâm linh thanh tịnh,
 1. **Cây Bồ Đề Nguyện Ước (Bodhi Wish Tree):** Nơi treo dải lụa cầu an, chiêm ngưỡng lời ước nguyện của cộng đồng và bấm "Tùy Hỷ Công Đức" để cùng nhau tăng trưởng phước lành.
 2. **Vòng Tròn Tọa Thiền Cộng Hưởng (Group Meditation Circle):** Khi 2 hoặc nhiều người cùng ngồi thiền cạnh nhau, hào quang Mandala liên kết tỏa sáng rực rỡ, định kỳ ngân chuông Bát Nhã và ban thưởng điểm công đức thanh tịnh.
 3. **Menu Giao Hảo Đạo Hữu (Direct Player Interaction & Radial Menu):** Bổ sung các hành động thiện lành khi tiếp xúc trực tiếp giữa 2 người que: Dâng trà sen, Tặng hoa sen phước lành, Cung kính bái kiến bên cạnh tính năng Luận võ gõ mõ.
+4. **Cải tiến Trải nghiệm & An ninh Hệ thống:**
+   - Đưa vị trí hiển thị Tên & Danh hiệu người chơi xuống **dưới chân** thay vì trên đầu để không che khuất nón lá, hào quang và biểu cảm khuôn mặt.
+   - **Chống gian lận / sửa điểm bằng F12 (DevTools Anti-tamper & Server-Authoritative Merits):** Điểm công đức được quản lý và xác thực có thẩm quyền từ phía Server WebSocket, kèm mã hóa kiểm tra toàn vẹn (integrity checksum) ở LocalStorage.
+   - **Chống spam vào/ra đền bằng phím Space:** Áp dụng cơ chế edge-trigger (chặn `e.repeat`) và thời gian hồi chiêu (cooldown 1.5s) khi chuyển cảnh.
 
 ---
 
@@ -120,6 +124,30 @@ Mở rộng `PlazaPlayer` và `VisualEntity` với thuộc tính:
    - 🪷 **Tặng Hoa Sen:** Chi phí 2 công đức của người tặng; người nhận được +2 công đức kèm đóa sen lấp lánh nở trên đầu trong 12 giây.
    - 🙏 **Cung Kính Bái Kiến:** Cả 2 cùng chuyển sang tư thế xá chào (`bow`) trong 2.5 giây kèm tiếng khánh chuông nhẹ.
    - ⚔️ **Luận Võ Gõ Mõ:** Gửi lời mời so tài gõ mõ 6 giây (tính năng hiện có).
+
+### 3.4. Hiển Thị Tên & Danh Hiệu Dưới Chân Người Dùng
+- **Hiện trạng:** Tên, nón lá, hào quang và bong bóng chat đang dồn hết lên trên đỉnh đầu nhân vật khiến không gian phía trên bị chật chội và che khuất nhau khi người chơi đội nón lá hoặc có hào quang sen.
+- **Thiết kế mới:**
+  - Di chuyển bảng tên (Nameplate), danh hiệu công đức (và hắc khí nếu bị âm điểm) xuống vị trí **dưới chân** nhân vật: $y_{\text{foot}} + 18\text{px} \rightarrow y_{\text{foot}} + 32\text{px}$.
+  - Nền mờ mềm mại màu đen bán trong suốt `rgba(0, 0, 0, 0.45)` bo góc viên thuốc (pill badge).
+  - Phía trên đầu người que chỉ để dành riêng cho: Nón lá / Hào quang, Bong bóng chat tạm thời và Biểu tượng cảm xúc / hiệu ứng hoa sen khi tương tác.
+
+### 3.5. Cơ Chế Chống Sửa Điểm F12 (DevTools Anti-Tamper & Authoritative Merits)
+- **Vấn đề cần giải quyết:** Người dùng mở F12 Console hoặc chỉnh sửa trực tiếp `localStorage` hay biến bộ nhớ để buff điểm công đức lên hàng triệu.
+- **Giải pháp bảo vệ đa tầng (Multi-layer Protection):**
+  1. **Server-Authoritative Merits (Máy chủ nắm quyền thẩm định):**
+     - Điểm công đức của người chơi trong phòng multiplayer được máy chủ WebSocket lưu trữ và tính toán chính thống.
+     - Client không được phép tự tiện gửi gói tin cập nhật điểm số tùy ý (`client_set_merits`). Mọi biến động điểm (nhặt hạt công đức, thả cá, tùy hỷ, thiền định, luận võ, tặng hoa sen) đều phát sinh từ sự kiện được Server thẩm định và broadcast ngược lại cho client.
+     - Khi một client mới kết nối, server sẽ kiểm tra tính hợp lệ của điểm khởi đầu hoặc gán mốc điểm an toàn.
+  2. **Client-Side Storage Integrity Checksum:**
+     - Khi lưu dữ liệu công đức vào `localStorage`, lưu kèm một mã băm chữ ký toàn vẹn (HMAC-like signature / checksum với khóa muối bí mật).
+     - Khi đọc lại từ `localStorage`, nếu checksum không khớp với dữ liệu điểm (dấu hiệu người dùng mở F12 sửa chuỗi JSON), hệ thống sẽ phát hiện hành vi can thiệp trái phép, tự động reset điểm về mốc chuẩn và cảnh báo hài hước nhẹ nhàng: *"Tâm bất chính thì công đức hóa hư không 🙏"*.
+
+### 3.6. Chống Spam Vào / Ra Đền Bằng Cách Giữ Phím Space
+- **Hiện trạng:** Khi đứng gần cửa đền, người chơi giữ phím Space có thể kích hoạt liên tục sự kiện `keydown` do cơ chế lặp phím tự động của hệ điều hành (`e.repeat`), làm nhấp nháy chuyển cảnh màn hình liên tục.
+- **Giải pháp:**
+  1. **Edge-Trigger (Bắt sườn xung):** Kiểm tra `if (e.repeat) return;` – người chơi bắt buộc phải **nhả phím Space ra** rồi nhấn lại thì mới nhận diện lần nhấn mới.
+  2. **Chống dội / Cooldown (Transition Debounce):** Bổ sung biến trạng thái khóa chuyển cảnh với thời gian hồi chiêu tối thiểu là 1.5 giây giữa 2 lần ra/vào đền (`lastDoorTransitionTime + 1500ms`). Trong thời gian chuyển cảnh, vô hiệu hóa toàn bộ phím Space liên quan đến cửa đền.
 
 ---
 
