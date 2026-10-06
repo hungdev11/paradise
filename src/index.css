@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+}
+
+/* Custom scrollbars for modal & panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(28, 25, 23, 0.4);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(234, 179, 8, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(234, 179, 8, 0.6);
+}
+
+/* Floating blessing animation */
+@keyframes floatBlessing {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(0.9);
+  }
+  30% {
+    transform: translate(-50%, -24px) scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -70px) scale(0.85);
+  }
+}
+
+.animate-blessing {
+  animation: floatBlessing 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* Wooden fish mallet strike */
+@keyframes malletStrike {
+  0% {
+    transform: rotate(0deg) translate(0, 0);
+  }
+  35% {
+    transform: rotate(-28deg) translate(-14px, 12px);
+  }
+  100% {
+    transform: rotate(0deg) translate(0, 0);
+  }
+}
+
+.animate-mallet {
+  animation: malletStrike 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+  transform-origin: 85% 15%;
+}
+
+/* Candlelight flicker */
+@keyframes candleFlicker {
+  0%, 100% {
+    opacity: 0.12;
+    transform: scale(1);
+  }
+  25% {
+    opacity: 0.22;
+    transform: scale(1.04) translate(1px, -1px);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scale(0.98) translate(-1px, 1px);
+  }
+  75% {
+    opacity: 0.26;
+    transform: scale(1.02);
+  }
+}
+
+.animate-candle-ambient {
+  animation: candleFlicker 3.2s ease-in-out infinite;
+}
+
+/* Glassmorphism panel styling */
+.zen-glass {
+  background: rgba(28, 25, 23, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(214, 180, 110, 0.18);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+}
+
+.zen-glass-gold {
+  background: rgba(41, 37, 36, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  box-shadow: 0 0 25px rgba(234, 179, 8, 0.15);
+}
