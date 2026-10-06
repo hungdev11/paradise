@@ -1,4 +1,16 @@
-import { PlazaPlayer, StickmanAction, MeritOrb, CombatResult, CombatInvite, ActiveCombatSession, FishTypeId } from '../types/zen';
+import {
+  PlazaPlayer,
+  StickmanAction,
+  MeritOrb,
+  CombatResult,
+  CombatInvite,
+  ActiveCombatSession,
+  FishTypeId,
+  WishRibbonColor,
+  BodhiWishRibbon,
+  SocialActionType,
+  PlayerSocialStatus,
+} from '../types/zen';
 
 const PROFILE_KEY = 'zen_plaza_profile_v1';
 
@@ -37,6 +49,18 @@ type CombatStartListener = (session: ActiveCombatSession) => void;
 type CombatTapListener = (duelId: string, playerId: string, playerATaps: number, playerBTaps: number) => void;
 type CombatDeclinedListener = (inviteId: string, targetName: string) => void;
 type FishReleasedListener = (event: ReleasedFishEvent) => void;
+type BodhiWishCreatedListener = (ribbon: BodhiWishRibbon, newMerits: number) => void;
+type BodhiWishRejoicedListener = (ribbonId: string, rejoiceCount: number, rejoicedBy: string, newMerits?: number) => void;
+type SocialEventListener = (
+  senderId: string,
+  senderName: string,
+  targetId: string,
+  targetName: string,
+  action: SocialActionType,
+  senderMerits?: number,
+  targetMerits?: number
+) => void;
+type MeditationRewardListener = (playerIds: string[], bonus: number) => void;
 
 export class PlazaService {
   private localProfile: LocalProfile;
@@ -44,6 +68,7 @@ export class PlazaService {
   private broadcastChannel: BroadcastChannel | null = null;
   private players: Map<string, PlazaPlayer> = new Map();
   private activeOrbs: Map<string, MeritOrb> = new Map();
+  private activeWishes: Map<string, BodhiWishRibbon> = new Map();
 
   // Event Listeners
   private moveListeners: Set<MoveListener> = new Set();
@@ -58,6 +83,10 @@ export class PlazaService {
   private duelTapListeners: Set<CombatTapListener> = new Set();
   private declineListeners: Set<CombatDeclinedListener> = new Set();
   private fishReleasedListeners: Set<FishReleasedListener> = new Set();
+  private wishCreatedListeners: Set<BodhiWishCreatedListener> = new Set();
+  private wishRejoicedListeners: Set<BodhiWishRejoicedListener> = new Set();
+  private socialEventListeners: Set<SocialEventListener> = new Set();
+  private meditationRewardListeners: Set<MeditationRewardListener> = new Set();
 
   private isConnected: boolean = false;
   private reconnectTimer: number | null = null;
@@ -91,13 +120,27 @@ export class PlazaService {
       };
     }
 
+    // 1. Session-unique ID: guarantees separate tabs in the same browser are distinct players!
+    let sessionId = '';
+    try {
+      sessionId = sessionStorage.getItem('zen_plaza_session_id') || '';
+      if (!sessionId) {
+        sessionId = `zen_p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        sessionStorage.setItem('zen_plaza_session_id', sessionId);
+      }
+    } catch {
+      sessionId = `zen_p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    }
+
+    // 2. Load saved customization (name, avatar, color, hat, merits) from localStorage
     try {
       const saved = localStorage.getItem(PROFILE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
           ...parsed,
-          merits: typeof parsed.merits === 'number' ? parsed.merits : 5,
+          id: sessionId, // Always use session-unique ID per browser tab!
+          merits: typeof parsed.merits === 'number' ? parsed.merits : 20,
           weapon: parsed.weapon || null,
           defeatUntil: parsed.defeatUntil || 0,
         };
@@ -112,12 +155,12 @@ export class PlazaService {
     const randomAvatar = DEFAULT_EMOJIS[Math.floor(Math.random() * DEFAULT_EMOJIS.length)];
 
     const newProfile: LocalProfile = {
-      id: `zen_p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: sessionId,
       name: `Đạo Hữu #${randomNum}`,
       avatar: randomAvatar,
       color: randomColor,
       hat: 'non_la',
-      merits: 5,
+      merits: 20,
       weapon: null,
       defeatUntil: 0,
     };
@@ -141,6 +184,57 @@ export class PlazaService {
 
   public getOrbs(): MeritOrb[] {
     return Array.from(this.activeOrbs.values());
+  }
+
+  public getBodhiWishes(): BodhiWishRibbon[] {
+    return Array.from(this.activeWishes.values()).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  public createBodhiWish(wishText: string, color: WishRibbonColor): boolean {
+    if (this.localProfile.merits < 5) return false;
+    this.sendNetworkMessage({
+      type: 'create_bodhi_wish',
+      wishText,
+      color,
+    });
+    return true;
+  }
+
+  public rejoiceBodhiWish(ribbonId: string): void {
+    this.sendNetworkMessage({
+      type: 'rejoice_bodhi_wish',
+      ribbonId,
+    });
+  }
+
+  public sendSocialInteraction(targetId: string, action: SocialActionType): boolean {
+    if (action === 'gift_lotus' && this.localProfile.merits < 2) return false;
+    this.sendNetworkMessage({
+      type: 'social_interact',
+      targetId,
+      action,
+    });
+    return true;
+  }
+
+  public onBodhiWishCreated(listener: BodhiWishCreatedListener): () => void {
+    this.wishCreatedListeners.add(listener);
+    return () => this.wishCreatedListeners.delete(listener);
+  }
+
+  public onBodhiWishRejoiced(listener: BodhiWishRejoicedListener): () => void {
+    this.wishRejoicedListeners.add(listener);
+    return () => this.wishRejoicedListeners.delete(listener);
+  }
+
+  public onSocialEvent(listener: SocialEventListener): () => void {
+    this.socialEventListeners.add(listener);
+    return () => this.socialEventListeners.delete(listener);
+  }
+
+  public onMeditationReward(listener: MeditationRewardListener): () => void {
+    this.meditationRewardListeners.add(listener);
+    return () => this.meditationRewardListeners.delete(listener);
   }
 
   public updateProfile(updates: Partial<Omit<LocalProfile, 'id'>>) {
@@ -247,32 +341,45 @@ export class PlazaService {
   }
 
   public disconnect() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       try {
-        this.ws.close();
+        const socket = this.ws;
+        this.ws = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.close();
       } catch {
         // ignore
       }
-      this.ws = null;
     }
+    this.isConnected = false;
   }
 
   private initWebSocket() {
     if (typeof window === 'undefined') return;
+
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       const wsUrl = `${protocol}//${host}/plaza-ws`;
 
-      this.ws = new WebSocket(wsUrl);
+      const socket = new WebSocket(wsUrl);
+      this.ws = socket;
 
-      this.ws.onopen = () => {
+      socket.onopen = () => {
+        if (this.ws !== socket) return;
         this.isConnected = true;
         const local = this.players.get(this.localProfile.id);
         if (local) {
-          this.ws?.send(
+          socket.send(
             JSON.stringify({
               type: 'join',
               player: {
@@ -296,7 +403,8 @@ export class PlazaService {
         }
       };
 
-      this.ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (this.ws !== socket) return;
         try {
           const msg = JSON.parse(event.data);
           this.handlePeerMessage(msg);
@@ -305,16 +413,22 @@ export class PlazaService {
         }
       };
 
-      this.ws.onclose = () => {
-        this.isConnected = false;
-        // Auto-reconnect after 2.5s
-        this.reconnectTimer = window.setTimeout(() => {
-          this.initWebSocket();
-        }, 2500);
+      socket.onclose = () => {
+        if (this.ws === socket) {
+          this.ws = null;
+          this.isConnected = false;
+          // Auto-reconnect after 2.5s
+          if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = window.setTimeout(() => {
+            this.initWebSocket();
+          }, 2500);
+        }
       };
 
-      this.ws.onerror = () => {
-        this.isConnected = false;
+      socket.onerror = () => {
+        if (this.ws === socket) {
+          this.isConnected = false;
+        }
       };
     } catch (e) {
       console.warn('Could not establish WebSocket, running in local channel mode:', e);
@@ -366,6 +480,13 @@ export class PlazaService {
           this.activeOrbs.set(orb.id, orb);
         }
         this.notifyOrbsListeners();
+      }
+
+      if (Array.isArray(msg.wishes) && msg.wishes.length > 0) {
+        this.activeWishes.clear();
+        for (const w of msg.wishes) {
+          this.activeWishes.set(w.id, w);
+        }
       }
     } else if (msg.type === 'player_joined') {
       if (msg.player && msg.player.id !== this.localProfile.id) {
@@ -505,8 +626,12 @@ export class PlazaService {
       }
     } else if (msg.type === 'combat_started') {
       if (msg.duel) {
-        for (const cb of this.startListeners) {
-          cb(msg.duel);
+        // Only trigger duel start for participating players (Player A or Player B)
+        const myId = this.localProfile.id;
+        if (msg.duel.playerAId === myId || msg.duel.playerBId === myId) {
+          for (const cb of this.startListeners) {
+            cb(msg.duel);
+          }
         }
       }
     } else if (msg.type === 'combat_tapped') {
@@ -544,6 +669,85 @@ export class PlazaService {
       for (const cb of this.fishReleasedListeners) {
         cb(fishEvent);
       }
+    } else if (msg.type === 'bodhi_wish_created') {
+      if (msg.ribbon) {
+        this.activeWishes.set(msg.ribbon.id, msg.ribbon);
+        if (msg.authorId === this.localProfile.id && typeof msg.newMerits === 'number') {
+          this.localProfile.merits = msg.newMerits;
+          const local = this.players.get(this.localProfile.id);
+          if (local) local.merits = msg.newMerits;
+          try { localStorage.setItem(PROFILE_KEY, JSON.stringify(this.localProfile)); } catch {}
+          this.notifyListListeners();
+        }
+        for (const cb of this.wishCreatedListeners) {
+          cb(msg.ribbon, msg.newMerits);
+        }
+      }
+    } else if (msg.type === 'bodhi_wish_rejoiced') {
+      const ribbon = this.activeWishes.get(msg.ribbonId);
+      if (ribbon) {
+        ribbon.rejoiceCount = msg.rejoiceCount;
+        if (msg.rejoicedBy && !ribbon.rejoicedBy.includes(msg.rejoicedBy)) {
+          ribbon.rejoicedBy.push(msg.rejoicedBy);
+        }
+      }
+      if (msg.rejoicedBy === this.localProfile.id && typeof msg.readerMerits === 'number') {
+        this.localProfile.merits = msg.readerMerits;
+        const local = this.players.get(this.localProfile.id);
+        if (local) local.merits = msg.readerMerits;
+        try { localStorage.setItem(PROFILE_KEY, JSON.stringify(this.localProfile)); } catch {}
+        this.notifyListListeners();
+      } else if (msg.authorId === this.localProfile.id && typeof msg.authorMerits === 'number') {
+        this.localProfile.merits = msg.authorMerits;
+        const local = this.players.get(this.localProfile.id);
+        if (local) local.merits = msg.authorMerits;
+        try { localStorage.setItem(PROFILE_KEY, JSON.stringify(this.localProfile)); } catch {}
+        this.notifyListListeners();
+      }
+      for (const cb of this.wishRejoicedListeners) {
+        cb(msg.ribbonId, msg.rejoiceCount, msg.rejoicedBy, msg.readerMerits);
+      }
+    } else if (msg.type === 'social_event_broadcast') {
+      const { senderId, senderName, targetId, targetName, action, senderMerits, targetMerits } = msg;
+      if (senderId === this.localProfile.id && typeof senderMerits === 'number') {
+        this.localProfile.merits = senderMerits;
+        const local = this.players.get(this.localProfile.id);
+        if (local) local.merits = senderMerits;
+        try { localStorage.setItem(PROFILE_KEY, JSON.stringify(this.localProfile)); } catch {}
+      }
+      if (targetId === this.localProfile.id && typeof targetMerits === 'number') {
+        this.localProfile.merits = targetMerits;
+        const local = this.players.get(this.localProfile.id);
+        if (local) local.merits = targetMerits;
+        try { localStorage.setItem(PROFILE_KEY, JSON.stringify(this.localProfile)); } catch {}
+      }
+
+      const sPlayer = this.players.get(senderId);
+      if (sPlayer && typeof senderMerits === 'number') sPlayer.merits = senderMerits;
+      const tPlayer = this.players.get(targetId);
+      if (tPlayer && typeof targetMerits === 'number') tPlayer.merits = targetMerits;
+      this.notifyListListeners();
+
+      for (const cb of this.socialEventListeners) {
+        cb(senderId, senderName, targetId, targetName, action, senderMerits, targetMerits);
+      }
+    } else if (msg.type === 'meditation_reward_broadcast') {
+      const { playerIds, bonus } = msg;
+      if (Array.isArray(playerIds)) {
+        for (const pid of playerIds) {
+          const p = this.players.get(pid);
+          if (p) p.merits = (p.merits || 0) + bonus;
+          if (pid === this.localProfile.id) {
+            this.localProfile.merits = (this.localProfile.merits || 0) + bonus;
+            try { localStorage.setItem(PROFILE_KEY, JSON.stringify(this.localProfile)); } catch {}
+          }
+        }
+        this.notifyListListeners();
+        for (const cb of this.meditationRewardListeners) {
+          cb(playerIds, bonus);
+        }
+      }
+    }
     }
   }
 
@@ -937,11 +1141,7 @@ export class PlazaService {
   // Release Fish (Phóng Sinh Cá)
   public releaseFish(fishType: FishTypeId, cost: number, lakeId: 'lotus_pond' | 'liberation_pond', x: number, y: number): boolean {
     const local = this.players.get(this.localProfile.id);
-    const currentMerits = local ? local.merits : (this.localProfile.merits || 0);
-
-    if (currentMerits < cost || cost <= 0) {
-      return false;
-    }
+    const currentMerits = Math.max(local?.merits ?? 0, this.localProfile.merits ?? 0);
 
     const newMerits = currentMerits - cost;
     if (local) {
@@ -973,6 +1173,7 @@ export class PlazaService {
       lakeId,
       x,
       y,
+      releasedBy: this.localProfile.name,
     });
 
     return true;
