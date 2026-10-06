@@ -1,8 +1,19 @@
 import { MeritStats, BackgroundConfig } from '../types/zen';
 
 const STATS_KEY = 'zen_merit_stats_v1';
+const STATS_CHECKSUM_KEY = 'zen_merit_chk_v1';
+const SECRET_SALT = 'zen_sacred_merit_salt_2026';
 const BG_CONFIG_KEY = 'zen_bg_config_v1';
 const BLESSING_TEXT_KEY = 'zen_blessing_text_v1';
+
+function computeStatsChecksum(stats: MeritStats): string {
+  const payload = `${stats.fishTaps}|${stats.incenseLit}|${stats.beadCount}|${stats.bellStrikes}|${stats.wishesReleased}|${stats.oraclesDrawn}|${SECRET_SALT}`;
+  let hash = 0;
+  for (let i = 0; i < payload.length; i++) {
+    hash = ((hash << 5) - hash + payload.charCodeAt(i)) | 0;
+  }
+  return hash.toString(36);
+}
 
 const defaultStats: MeritStats = {
   fishTaps: 0,
@@ -35,6 +46,16 @@ export const storage = {
       const saved = localStorage.getItem(STATS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+
+        // Anti-tamper F12 DevTools Checksum Verification
+        const savedChecksum = localStorage.getItem(STATS_CHECKSUM_KEY);
+        if (savedChecksum && savedChecksum !== computeStatsChecksum(parsed)) {
+          console.warn('⚠️ Phát hiện can thiệp điểm số trái phép (F12 DevTools Tamper)! Công đức hóa hư không.');
+          localStorage.setItem(STATS_KEY, JSON.stringify(defaultStats));
+          localStorage.setItem(STATS_CHECKSUM_KEY, computeStatsChecksum(defaultStats));
+          return defaultStats;
+        }
+
         // check streak
         const today = new Date().toISOString().slice(0, 10);
         if (parsed.lastActiveDate !== today) {
@@ -46,6 +67,7 @@ export const storage = {
           }
           parsed.lastActiveDate = today;
           localStorage.setItem(STATS_KEY, JSON.stringify(parsed));
+          localStorage.setItem(STATS_CHECKSUM_KEY, computeStatsChecksum(parsed));
         }
         return { ...defaultStats, ...parsed };
       }
@@ -58,6 +80,7 @@ export const storage = {
   saveStats(stats: MeritStats) {
     try {
       localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+      localStorage.setItem(STATS_CHECKSUM_KEY, computeStatsChecksum(stats));
     } catch {
       // ignore
     }

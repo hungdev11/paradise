@@ -97,10 +97,15 @@ export function zenPlazaWsPlugin(): Plugin {
             if (msg.type === 'join') {
               const pid = String(msg.player?.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
               currentId = pid;
+              let initialMerits = typeof msg.player?.merits === 'number' ? msg.player.merits : 5;
+              // Chống sửa điểm F12: Giới hạn điểm khởi tạo hợp lý, không cho phép client tự buff hàng triệu điểm
+              if (initialMerits > 150 || initialMerits < -100) {
+                initialMerits = 20;
+              }
               const playerState: PlazaPlayerState = {
                 ...msg.player,
                 id: pid,
-                merits: typeof msg.player?.merits === 'number' ? msg.player.merits : 5,
+                merits: initialMerits,
                 weapon: msg.player?.weapon || null,
                 defeatUntil: msg.player?.defeatUntil || 0,
                 lastSeen: Date.now(),
@@ -125,8 +130,39 @@ export function zenPlazaWsPlugin(): Plugin {
                 }
               }
             } else if (msg.type === 'move') {
-              if (currentId && players.has(currentId)) {
-                const p = players.get(currentId)!;
+              if (currentId) {
+                let p = players.get(currentId);
+                if (!p) {
+                  // Auto-recover player state on server if temporarily evicted
+                  const recoveredState: PlazaPlayerState = {
+                    id: currentId,
+                    name: 'Đạo Hữu',
+                    avatar: '🪷',
+                    color: '#f59e0b',
+                    hat: 'non_la',
+                    weapon: null,
+                    x: msg.x,
+                    y: msg.y,
+                    vx: msg.vx,
+                    vy: msg.vy,
+                    facing: msg.facing,
+                    isMoving: msg.isMoving,
+                    action: 'idle',
+                    lastSeen: Date.now(),
+                    merits: 5,
+                  };
+                  p = { ws, state: recoveredState };
+                  players.set(currentId, p);
+
+                  const joinPayload = JSON.stringify({ type: 'player_joined', player: recoveredState });
+                  for (const [id, client] of players.entries()) {
+                    if (id !== currentId && client.ws.readyState === WebSocket.OPEN) {
+                      client.ws.send(joinPayload);
+                    }
+                  }
+                }
+
+                p.ws = ws;
                 p.state.x = msg.x;
                 p.state.y = msg.y;
                 p.state.vx = msg.vx;
@@ -335,10 +371,12 @@ export function zenPlazaWsPlugin(): Plugin {
                     type: 'combat_started',
                     duel: duelSession,
                   });
-                  for (const client of players.values()) {
-                    if (client.ws.readyState === WebSocket.OPEN) {
-                      client.ws.send(startPayload);
-                    }
+                  // Only send combat_started to the two duel participants!
+                  if (pA.ws.readyState === WebSocket.OPEN) {
+                    pA.ws.send(startPayload);
+                  }
+                  if (pB.ws.readyState === WebSocket.OPEN) {
+                    pB.ws.send(startPayload);
                   }
                 }
               }
@@ -373,10 +411,14 @@ export function zenPlazaWsPlugin(): Plugin {
                   playerATaps: duel.playerATaps,
                   playerBTaps: duel.playerBTaps,
                 });
-                for (const client of players.values()) {
-                  if (client.ws.readyState === WebSocket.OPEN) {
-                    client.ws.send(tapPayload);
-                  }
+                // Only send taps to the two duel participants!
+                const pA = players.get(duel.playerAId);
+                const pB = players.get(duel.playerBId);
+                if (pA && pA.ws.readyState === WebSocket.OPEN) {
+                  pA.ws.send(tapPayload);
+                }
+                if (pB && pB.ws.readyState === WebSocket.OPEN) {
+                  pB.ws.send(tapPayload);
                 }
               }
             } else if (msg.type === 'combat_finish' || msg.type === 'combat_clash') {
@@ -503,7 +545,7 @@ export function zenPlazaWsPlugin(): Plugin {
                 if (msg.avatar !== undefined) p.state.avatar = msg.avatar;
                 if (msg.color) p.state.color = msg.color;
                 if (msg.hat) p.state.hat = msg.hat;
-                if (typeof msg.merits === 'number') p.state.merits = msg.merits;
+                // Chống sửa điểm F12: Server giữ quyền thẩm định duy nhất, không cho phép client tùy tiện ghi đè p.state.merits qua update_profile
                 if (msg.weapon !== undefined) p.state.weapon = msg.weapon;
 
                 const updPayload = JSON.stringify({
@@ -577,11 +619,15 @@ export function zenPlazaWsPlugin(): Plugin {
         ws.on('close', () => {
           clearInterval(pingInterval);
           if (currentId && players.has(currentId)) {
-            players.delete(currentId);
-            const leavePayload = JSON.stringify({ type: 'player_left', id: currentId });
-            for (const client of players.values()) {
-              if (client.ws.readyState === WebSocket.OPEN) {
-                client.ws.send(leavePayload);
+            const entry = players.get(currentId);
+            // Only remove from players map if the closing socket matches the stored active socket
+            if (entry && entry.ws === ws) {
+              players.delete(currentId);
+              const leavePayload = JSON.stringify({ type: 'player_left', id: currentId });
+              for (const client of players.values()) {
+                if (client.ws.readyState === WebSocket.OPEN) {
+                  client.ws.send(leavePayload);
+                }
               }
             }
           }
