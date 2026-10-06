@@ -48,6 +48,17 @@ interface ChatMessage {
   time: string;
 }
 
+interface ZenToastNotice {
+  id: string;
+  type: 'wish' | 'social' | 'meditation' | 'combat' | 'warning' | 'merit';
+  icon: string;
+  title: string;
+  desc: string;
+  accentColor: string;
+  createdAt: number;
+  duration: number;
+}
+
 interface VisualEntity {
   id: string;
   name: string;
@@ -310,7 +321,7 @@ function drawTempleInterior(
   // Label badge for Mokugyo
   ctx.font = 'bold 11px system-ui';
   ctx.fillStyle = '#fef08a';
-  ctx.fillText('MÕ GỖ NỘI ĐIỆN (Space / Bấm để gõ)', mokugyoX, mokugyoY + 56);
+  ctx.fillText('MÕ GỖ NỘI ĐIỆN (Nhấp chuột để gõ)', mokugyoX, mokugyoY + 56);
   if (mokugyoHits > 0) {
     ctx.font = '10px monospace';
     ctx.fillStyle = '#86efac';
@@ -497,6 +508,33 @@ export const ZenPlaza: React.FC = () => {
   const [isNearBodhi, setIsNearBodhi] = useState<boolean>(false);
   const [indoorMokugyoHits, setIndoorMokugyoHits] = useState<number>(0);
   const [nearIndoorExit, setNearIndoorExit] = useState<boolean>(false);
+
+  // 10s Toast Notification Queue (Chỉ hiện thông báo quan trọng)
+  const [notices, setNotices] = useState<ZenToastNotice[]>([]);
+
+  const addNotice = useCallback(
+    (notice: Omit<ZenToastNotice, 'id' | 'createdAt' | 'duration'> & { duration?: number }) => {
+      const id = `zen_ntc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const duration = notice.duration ?? 10000; // Mặc định 10 giây
+      const newNotice: ZenToastNotice = {
+        ...notice,
+        id,
+        createdAt: Date.now(),
+        duration,
+      };
+
+      setNotices((prev) => [newNotice, ...prev.slice(0, 2)]); // Giữ tối đa 3 thông báo nổi bật
+
+      setTimeout(() => {
+        setNotices((prev) => prev.filter((n) => n.id !== id));
+      }, duration);
+    },
+    []
+  );
+
+  const removeNotice = useCallback((id: string) => {
+    setNotices((prev) => prev.filter((n) => n.id !== id));
+  }, []);
   const currentSceneRef = useRef<'plaza' | 'temple_interior'>('plaza');
   const activeTempleRef = useRef<TempleDoorTrigger | null>(null);
   const indoorMokugyoHitsRef = useRef<number>(0);
@@ -907,6 +945,16 @@ export const ZenPlaza: React.FC = () => {
       if (isParticipant) {
         setCombatAlert(alertMsg);
         setTimeout(() => setCombatAlert(null), 5000);
+        const myId = plazaService.getProfile().id;
+        const isWinner = result.winnerId === myId;
+        addNotice({
+          type: 'combat',
+          icon: isWinner ? '🏆' : '💀',
+          title: isWinner ? 'Thắng Trận Luận Võ (+10 Công Đức)' : 'Bại Trận Luận Võ (-5 Công Đức)',
+          desc: alertMsg,
+          accentColor: isWinner ? '#fbbf24' : '#ef4444',
+          duration: 10000,
+        });
       }
 
       if (loser) {
@@ -1037,6 +1085,14 @@ export const ZenPlaza: React.FC = () => {
             color: '#6ee7b7',
             alpha: 1,
           });
+          addNotice({
+            type: 'social',
+            icon: '🍵',
+            title: 'Dâng Trà Sen Tịnh Tâm',
+            desc: `${senderName} vừa dâng tặng chén trà sen thanh tịnh tới ${targetName}!`,
+            accentColor: '#34d399',
+            duration: 10000,
+          });
         }
       } else if (action === 'gift_lotus') {
         if (tPlayer) tPlayer.socialStatus = { type: 'gift_lotus', partnerName: senderName, expiresAt: Date.now() + 12000 };
@@ -1049,6 +1105,14 @@ export const ZenPlaza: React.FC = () => {
             text: `🪷 ${senderName} tặng đóa sen phước lành (+2 Công Đức) cho ${targetName}!`,
             color: '#fbbf24',
             alpha: 1,
+          });
+          addNotice({
+            type: 'merit',
+            icon: '🪷',
+            title: 'Tặng Đóa Hoa Sen (+2 Công Đức)',
+            desc: `${senderName} tặng đóa sen phước lành cho ${targetName} (+2 Công Đức)!`,
+            accentColor: '#f472b6',
+            duration: 10000,
           });
         }
       } else if (action === 'mutual_bow') {
@@ -1063,6 +1127,14 @@ export const ZenPlaza: React.FC = () => {
             text: `🙏 ${senderName} và ${targetName} cung kính bái chào nhau!`,
             color: '#fef08a',
             alpha: 1,
+          });
+          addNotice({
+            type: 'social',
+            icon: '🙏',
+            title: 'Cung Kính Bái Chào',
+            desc: `${senderName} và ${targetName} cung kính cúi đầu bái lễ nhau!`,
+            accentColor: '#fde047',
+            duration: 10000,
           });
           setTimeout(() => {
             if (sPlayer && sPlayer.action === 'bow') sPlayer.action = 'idle';
@@ -1089,6 +1161,57 @@ export const ZenPlaza: React.FC = () => {
           });
         }
         setLocalMerits(plazaService.getProfile().merits ?? 5);
+        addNotice({
+          type: 'meditation',
+          icon: '🧘',
+          title: `Cộng Hưởng Tọa Thiền (+${bonus} Công Đức)`,
+          desc: `Vòng tròn Mandala đồng tu kết nối ${playerIds.length} đạo hữu thành công!`,
+          accentColor: '#fbbf24',
+          duration: 10000,
+        });
+      }
+    });
+
+    // 15. Bodhi Wish Created Event (Cầu an Bồ Đề)
+    const unsubWishCreated = plazaService.onBodhiWishCreated((ribbon, newMerits) => {
+      if (typeof newMerits === 'number') {
+        setLocalMerits(newMerits);
+      }
+      addNotice({
+        type: 'wish',
+        icon: '🎋',
+        title: 'Ước Nguyện Cây Bồ Đề',
+        desc: `Đạo hữu ${ribbon.senderName} vừa treo dải lụa: "${ribbon.wishText.slice(0, 50)}${ribbon.wishText.length > 50 ? '...' : ''}"`,
+        accentColor: '#f59e0b',
+        duration: 10000,
+      });
+    });
+
+    // 16. Bodhi Wish Rejoiced Event (Tùy Hỷ Công Đức)
+    const unsubWishRejoiced = plazaService.onBodhiWishRejoiced((ribbonId, count, rejoicedBy, readerMerits) => {
+      const myId = plazaService.getProfile().id;
+      const ribbon = plazaService.getBodhiWishes().find((w) => w.id === ribbonId);
+      if (typeof readerMerits === 'number') {
+        setLocalMerits(readerMerits);
+      }
+      if (rejoicedBy === myId) {
+        addNotice({
+          type: 'merit',
+          icon: '🙏',
+          title: 'Tùy Hỷ Phước Lành (+1 Công Đức)',
+          desc: 'Bạn vừa tùy hỷ ước nguyện của đạo hữu trên Cây Bồ Đề. Cả hai cùng tích phước (+1).',
+          accentColor: '#10b981',
+          duration: 10000,
+        });
+      } else if (ribbon && ribbon.senderId === myId) {
+        addNotice({
+          type: 'merit',
+          icon: '✨',
+          title: 'Được Tùy Hỷ Công Đức (+1 Công Đức)',
+          desc: `Có đạo hữu vừa tùy hỷ ước nguyện của bạn (${count} lượt tùy hỷ)!`,
+          accentColor: '#fbbf24',
+          duration: 10000,
+        });
       }
     });
 
@@ -1107,6 +1230,8 @@ export const ZenPlaza: React.FC = () => {
       unsubFish();
       unsubSocial();
       unsubMeditation();
+      unsubWishCreated();
+      unsubWishRejoiced();
       plazaService.disconnect();
     };
   }, []);
@@ -1478,11 +1603,8 @@ export const ZenPlaza: React.FC = () => {
     audioEngine.playWoodenFish(false);
     indoorMokugyoHitsRef.current += 1;
     setIndoorMokugyoHits((h) => h + 1);
-    setLocalMerits((m) => {
-      const next = m + 1;
-      plazaService.updateProfile({ merits: next });
-      return next;
-    });
+    plazaService.tapIndoorMokugyo();
+    setLocalMerits(plazaService.getProfile().merits ?? 5);
     floatingTextsRef.current.push({
       id: `ft_indoor_${Date.now()}_${Math.random()}`,
       x: 600,
@@ -3519,6 +3641,48 @@ export const ZenPlaza: React.FC = () => {
           </div>
         )}
 
+        {/* Floating Zen Notifications Toast Stack (10s Countdown, chỉ hiện thông báo quan trọng) */}
+        <div className="absolute top-3 right-3 z-40 flex flex-col gap-2 max-w-[280px] sm:max-w-[340px] pointer-events-none">
+          {notices.map((n) => (
+            <div
+              key={n.id}
+              className="pointer-events-auto relative overflow-hidden rounded-2xl bg-stone-900/95 border border-amber-500/40 p-3 shadow-2xl backdrop-blur-md animate-in slide-in-from-top-2 fade-in duration-200 flex flex-col gap-1.5"
+              style={{ borderLeftColor: n.accentColor, borderLeftWidth: '4px' }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-base flex-shrink-0">{n.icon}</span>
+                  <span className="text-xs font-bold text-amber-200 truncate">{n.title}</span>
+                </div>
+                <button
+                  onClick={() => removeNotice(n.id)}
+                  className="p-1 rounded-full text-stone-400 hover:text-white hover:bg-stone-800 transition flex-shrink-0"
+                  title="Đóng thông báo"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-[11px] text-stone-300 leading-relaxed line-clamp-2">{n.desc}</p>
+              {/* 10-second countdown bar */}
+              <div className="w-full h-1 bg-stone-800/80 rounded-full overflow-hidden mt-0.5">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    backgroundColor: n.accentColor,
+                    animation: `shrinkNoticeWidth ${n.duration}ms linear forwards`,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+        <style>{`
+          @keyframes shrinkNoticeWidth {
+            from { width: 100%; }
+            to { width: 0%; }
+          }
+        `}</style>
+
         {/* Nearby Opponent 1v1 Combat Challenge Button (Key L) */}
         {nearbyOpponent && (
           <div className="absolute bottom-14 left-3 z-30 animate-in slide-in-from-bottom-3 duration-200">
@@ -3551,7 +3715,7 @@ export const ZenPlaza: React.FC = () => {
           <>
             <div className="absolute top-3 left-4 flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-950/85 border border-amber-500/50 text-amber-200 text-xs backdrop-blur-md z-30 shadow-lg">
               <DoorOpen className="w-4 h-4 text-amber-400" />
-              <span>Nội Điện: <b>{activeTemple?.name}</b> • Bấm Space để gõ Mõ tích công đức!</span>
+              <span>Nội Điện: <b>{activeTemple?.name}</b> • Nhấp chuột vào Mõ để tích công đức!</span>
             </div>
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 animate-in zoom-in-95 duration-150">
               <button

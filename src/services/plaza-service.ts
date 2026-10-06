@@ -192,12 +192,33 @@ export class PlazaService {
 
   public createBodhiWish(wishText: string, color: WishRibbonColor): boolean {
     if (this.localProfile.merits < 5) return false;
+    const currentMerits = this.localProfile.merits;
+    this.localProfile.merits = Math.max(0, this.localProfile.merits - 5);
+    const local = this.players.get(this.localProfile.id);
+    if (local) local.merits = this.localProfile.merits;
+    try { localStorage.setItem(PROFILE_KEY, JSON.stringify(this.localProfile)); } catch {}
+    this.notifyListListeners();
+
     this.sendNetworkMessage({
       type: 'create_bodhi_wish',
       wishText,
       color,
+      currentMerits,
     });
     return true;
+  }
+
+  public tapIndoorMokugyo(): void {
+    this.localProfile.merits = (this.localProfile.merits || 0) + 1;
+    const local = this.players.get(this.localProfile.id);
+    if (local) local.merits = this.localProfile.merits;
+    try { localStorage.setItem(PROFILE_KEY, JSON.stringify(this.localProfile)); } catch {}
+    this.notifyListListeners();
+
+    this.sendNetworkMessage({
+      type: 'tap_indoor_mokugyo',
+      playerId: this.localProfile.id,
+    });
   }
 
   public rejoiceBodhiWish(ribbonId: string): void {

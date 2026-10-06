@@ -21,6 +21,7 @@ export interface PlazaPlayerState {
   lastSeen: number;
   merits: number;
   defeatUntil?: number;
+  lastMokugyoTap?: number;
 }
 
 export interface ServerMeritOrb {
@@ -139,9 +140,9 @@ export function zenPlazaWsPlugin(): Plugin {
             if (msg.type === 'join') {
               const pid = String(msg.player?.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
               currentId = pid;
-              let initialMerits = typeof msg.player?.merits === 'number' ? msg.player.merits : 5;
-              // Chống sửa điểm F12: Giới hạn điểm khởi tạo hợp lý, không cho phép client tự buff hàng triệu điểm
-              if (initialMerits > 150 || initialMerits < -100) {
+              let initialMerits = typeof msg.player?.merits === 'number' ? msg.player.merits : 20;
+              // Chống sửa điểm F12: Giới hạn điểm khởi tạo hợp lý (-100 đến 500)
+              if (initialMerits > 500 || initialMerits < -100) {
                 initialMerits = 20;
               }
               const playerState: PlazaPlayerState = {
@@ -656,8 +657,14 @@ export function zenPlazaWsPlugin(): Plugin {
             } else if (msg.type === 'create_bodhi_wish') {
               if (currentId && players.has(currentId)) {
                 const p = players.get(currentId)!;
-                if (p.state.merits >= 5) {
-                  p.state.merits -= 5;
+                const cost = 5;
+                // Đồng bộ điểm công đức an toàn từ client (tránh trường hợp gõ mõ client chưa sync với server bị trừ sạch điểm)
+                const clientMerits = typeof msg.currentMerits === 'number' && msg.currentMerits >= -100 && msg.currentMerits <= 500
+                  ? msg.currentMerits
+                  : p.state.merits;
+                const baseMerits = Math.max(p.state.merits, clientMerits);
+                if (baseMerits >= cost) {
+                  p.state.merits = baseMerits - cost;
                   p.state.lastSeen = Date.now();
 
                   const ribbon: BodhiWishRibbon = {
@@ -684,6 +691,16 @@ export function zenPlazaWsPlugin(): Plugin {
                       client.ws.send(wishPayload);
                     }
                   }
+                }
+              }
+            } else if (msg.type === 'tap_indoor_mokugyo') {
+              if (currentId && players.has(currentId)) {
+                const p = players.get(currentId)!;
+                const now = Date.now();
+                if (!p.state.lastMokugyoTap || now - p.state.lastMokugyoTap >= 40) {
+                  p.state.lastMokugyoTap = now;
+                  p.state.merits = (p.state.merits || 0) + 1;
+                  p.state.lastSeen = now;
                 }
               }
             } else if (msg.type === 'rejoice_bodhi_wish') {

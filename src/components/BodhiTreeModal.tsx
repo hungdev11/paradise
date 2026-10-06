@@ -75,11 +75,11 @@ export const BodhiTreeModal: React.FC<BodhiTreeModalProps> = ({ isOpen, onClose,
       } catch {}
 
       setWishText('');
-      setAlertMsg('🙏 Đã treo dải lụa nguyện ước thành công lên Cây Bồ Đề!');
+      setAlertMsg('🙏 Đã treo dải lụa nguyện ước thành công lên Cây Bồ Đề (-5 Công Đức)!');
       setTimeout(() => {
         setAlertMsg(null);
         setActiveTab('list');
-      }, 1200);
+      }, 1500);
     }
   };
 
@@ -117,12 +117,18 @@ export const BodhiTreeModal: React.FC<BodhiTreeModalProps> = ({ isOpen, onClose,
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full text-stone-400 hover:text-white hover:bg-stone-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 font-mono text-xs flex items-center gap-1.5 shadow-sm">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Công Đức: <b>{userMerits}</b></span>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-full text-stone-400 hover:text-white hover:bg-stone-800 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Tab Selector */}
