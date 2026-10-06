@@ -137,6 +137,41 @@ const THEME_COLORS = [
   { name: 'Bạch Y', hex: '#f8fafc' },
 ];
 
+function drawStickmanHeadAvatar(
+  ctx: CanvasRenderingContext2D,
+  avatarStr: string | undefined,
+  headX: number,
+  headY: number,
+  headRadius: number,
+  imageCache: Map<string, HTMLImageElement>,
+  fallbackEmoji: string = '🪷'
+) {
+  const avatar = avatarStr || fallbackEmoji;
+  const isImage = avatar.startsWith('data:image') || avatar.startsWith('http') || avatar.startsWith('blob:') || avatar.length > 20;
+
+  if (isImage) {
+    let img = imageCache.get(avatar);
+    if (!img) {
+      img = new Image();
+      img.src = avatar;
+      imageCache.set(avatar, img);
+    }
+    if (img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, headX - headRadius, headY - headRadius, headRadius * 2, headRadius * 2);
+    } else {
+      ctx.font = `${Math.round(headRadius * 1.1)}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(fallbackEmoji, headX, headY);
+    }
+  } else {
+    ctx.font = `${Math.round(headRadius * 1.1)}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(avatar.slice(0, 4), headX, headY);
+  }
+}
+
 function drawTempleInterior(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -148,7 +183,8 @@ function drawTempleInterior(
   walkCycle: number,
   mokugyoHits: number,
   floatingTexts: FloatingText[],
-  indoorPlayers: VisualEntity[]
+  indoorPlayers: VisualEntity[],
+  imageCache: Map<string, HTMLImageElement>
 ) {
   // 1. Interior Wall & Floor
   ctx.fillStyle = '#17110e';
@@ -452,20 +488,21 @@ function drawTempleInterior(
       ctx.stroke();
     }
 
-    // Head
+    // Head & Custom Avatar (Hỗ trợ ảnh Base64 / URL chống vỡ chữ)
     const headCenterY = isSitting ? py - 40 : py - 48;
-    ctx.fillStyle = '#ffffff';
+    const headRadius = 13;
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(px, headCenterY, 14, 0, Math.PI * 2);
+    ctx.arc(px, headCenterY, headRadius, 0, Math.PI * 2);
+    ctx.fillStyle = '#1c1917';
     ctx.fill();
     ctx.strokeStyle = pColor;
     ctx.lineWidth = 2.5;
     ctx.stroke();
+    ctx.clip();
 
-    // Avatar emoji
-    ctx.font = '15px serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(pAvatar, px, headCenterY + 5);
+    drawStickmanHeadAvatar(ctx, pAvatar, px, headCenterY, headRadius, imageCache, '🧘');
+    ctx.restore();
 
     // Hat
     if (p.hat === 'non_la') {
@@ -2095,7 +2132,8 @@ export const ZenPlaza: React.FC = () => {
           walkCycle,
           indoorMokugyoHitsRef.current,
           floatingTextsRef.current,
-          indoorPlayers
+          indoorPlayers,
+          imageCacheRef.current
         );
 
         // Draw click ripples in temple interior
@@ -3411,22 +3449,7 @@ export const ZenPlaza: React.FC = () => {
         ctx.stroke();
         ctx.clip();
 
-        if (p.avatar && p.avatar.startsWith('data:image')) {
-          let img = imageCacheRef.current.get(p.avatar);
-          if (!img) {
-            img = new Image();
-            img.src = p.avatar;
-            imageCacheRef.current.set(p.avatar, img);
-          }
-          if (img.complete) {
-            ctx.drawImage(img, px - headRadius, currentHeadY - headRadius, headRadius * 2, headRadius * 2);
-          }
-        } else {
-          ctx.font = '14px serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(p.avatar || '🪷', px, currentHeadY);
-        }
+        drawStickmanHeadAvatar(ctx, p.avatar, px, currentHeadY, headRadius, imageCacheRef.current, '🪷');
         ctx.restore();
 
         // Hat
@@ -4689,9 +4712,17 @@ export const ZenPlaza: React.FC = () => {
           <div className="w-full max-w-sm bg-stone-900 border border-amber-500/40 rounded-2xl shadow-2xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-stone-800 pb-3">
               <div className="flex items-center gap-2.5">
-                <span className="text-2xl">{selectedSocialPlayer.avatar || '🪷'}</span>
-                <div>
-                  <h3 className="font-serif font-bold text-sm text-amber-200">
+                {selectedSocialPlayer.avatar && (selectedSocialPlayer.avatar.startsWith('data:image') || selectedSocialPlayer.avatar.startsWith('http') || selectedSocialPlayer.avatar.length > 20) ? (
+                  <img
+                    src={selectedSocialPlayer.avatar}
+                    alt="avatar"
+                    className="w-10 h-10 rounded-full object-cover border border-amber-500/50 shadow-sm flex-shrink-0"
+                  />
+                ) : (
+                  <span className="text-2xl flex-shrink-0">{selectedSocialPlayer.avatar || '🪷'}</span>
+                )}
+                <div className="min-w-0">
+                  <h3 className="font-serif font-bold text-sm text-amber-200 truncate">
                     {selectedSocialPlayer.name}
                   </h3>
                   <p className="text-[10px] text-amber-400 font-mono">
