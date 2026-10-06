@@ -15,6 +15,7 @@ import {
 } from '../types/zen';
 import { plazaService, LocalProfile } from '../services/plaza-service';
 import { audioEngine } from '../services/audio-engine';
+import { BodhiTreeModal } from './BodhiTreeModal';
 import {
   Users,
   Settings2,
@@ -478,6 +479,8 @@ export const ZenPlaza: React.FC = () => {
   const [nearbyDoor, setNearbyDoor] = useState<TempleDoorTrigger | null>(null);
   const [nearbyLake, setNearbyLake] = useState<{ id: 'lotus_pond' | 'liberation_pond'; name: string; x: number; y: number; radiusX: number; radiusY: number } | null>(null);
   const [showFishModal, setShowFishModal] = useState<boolean>(false);
+  const [showBodhiModal, setShowBodhiModal] = useState<boolean>(false);
+  const [isNearBodhi, setIsNearBodhi] = useState<boolean>(false);
   const [indoorMokugyoHits, setIndoorMokugyoHits] = useState<number>(0);
   const [nearIndoorExit, setNearIndoorExit] = useState<boolean>(false);
   const currentSceneRef = useRef<'plaza' | 'temple_interior'>('plaza');
@@ -485,6 +488,7 @@ export const ZenPlaza: React.FC = () => {
   const indoorMokugyoHitsRef = useRef<number>(0);
   const lastNearbyDoorIdRef = useRef<string | null>(null);
   const lastNearbyLakeIdRef = useRef<string | null>(null);
+  const lastNearBodhiRef = useRef<boolean>(false);
   const lastNearIndoorExitRef = useRef<boolean>(false);
 
   // Canvas & Game Loop Refs
@@ -1447,6 +1451,14 @@ export const ZenPlaza: React.FC = () => {
         }
       }
 
+      // Key B: Open Bodhi Tree Wish Modal when near Bodhi Tree
+      if (e.code === 'KeyB' || e.key === 'b' || e.key === 'B') {
+        if (currentSceneRef.current === 'plaza' && lastNearBodhiRef.current) {
+          setShowBodhiModal(true);
+          return;
+        }
+      }
+
       if (e.key === '1') triggerAction('pray');
       if (e.key === '2') triggerAction('bow');
       if (e.key === '3') triggerAction('tap_fish');
@@ -1765,6 +1777,14 @@ export const ZenPlaza: React.FC = () => {
       if (lakeId !== lastNearbyLakeIdRef.current) {
         lastNearbyLakeIdRef.current = lakeId;
         setNearbyLake(foundLake);
+      }
+
+      // Check proximity to Bodhi Wish Tree (tree at 1740, 1200, radius <= 165px)
+      const distToBodhi = Math.hypot(1740 - localPosRef.current.x, 1200 - localPosRef.current.y);
+      const nearBodhi = distToBodhi <= 165;
+      if (nearBodhi !== lastNearBodhiRef.current) {
+        lastNearBodhiRef.current = nearBodhi;
+        setIsNearBodhi(nearBodhi);
       }
 
       // Check proximity for looting scattered merit orbs!
@@ -2411,18 +2431,58 @@ export const ZenPlaza: React.FC = () => {
       ctx.closePath();
       ctx.fill();
 
-      // Ribbons
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(treeX - 35, treeY - 45);
-      ctx.lineTo(treeX - 30, treeY - 5);
-      ctx.stroke();
-      ctx.strokeStyle = '#f59e0b';
-      ctx.beginPath();
-      ctx.moveTo(treeX + 30, treeY - 50);
-      ctx.lineTo(treeX + 25, treeY - 10);
-      ctx.stroke();
+      // Dynamic Swaying Bodhi Wish Ribbons
+      const allWishes = plazaService.getBodhiWishes();
+      const branchOffsets = [
+        { dx: -45, dy: -40, len: 42 },
+        { dx: -25, dy: -60, len: 55 },
+        { dx: -5, dy: -65, len: 48 },
+        { dx: 25, dy: -55, len: 52 },
+        { dx: 45, dy: -35, len: 40 },
+        { dx: -60, dy: -25, len: 38 },
+        { dx: -35, dy: -15, len: 45 },
+        { dx: 15, dy: -20, len: 46 },
+        { dx: 40, dy: -15, len: 42 },
+        { dx: 60, dy: -25, len: 36 },
+        { dx: -15, dy: -75, len: 60 },
+        { dx: 10, dy: -70, len: 58 },
+        { dx: -50, dy: -50, len: 44 },
+        { dx: 30, dy: -45, len: 48 },
+        { dx: -20, dy: -30, len: 50 },
+        { dx: 20, dy: -35, len: 46 },
+      ];
+
+      const wishesToDraw = allWishes.length > 0 ? allWishes.slice(0, 16) : [
+        { id: 'def1', color: 'red', branchIndex: 0 } as any,
+        { id: 'def2', color: 'yellow', branchIndex: 3 } as any,
+        { id: 'def3', color: 'blue', branchIndex: 7 } as any,
+        { id: 'def4', color: 'pink', branchIndex: 11 } as any,
+      ];
+
+      wishesToDraw.forEach((w, idx) => {
+        const branch = branchOffsets[idx % branchOffsets.length];
+        const bx = treeX + branch.dx;
+        const by = treeY + branch.dy;
+        const swing = Math.sin(time * 0.002 + (w.branchIndex ?? idx) * 0.8) * 8;
+
+        const ribbonColor =
+          w.color === 'red' ? '#ef4444' :
+          w.color === 'blue' ? '#06b6d4' :
+          w.color === 'pink' ? '#ec4899' :
+          w.color === 'purple' ? '#8b5cf6' : '#f59e0b';
+
+        ctx.strokeStyle = ribbonColor;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(bx + swing * 0.6, by + branch.len * 0.5, bx + swing, by + branch.len);
+        ctx.stroke();
+
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.arc(bx + swing, by + branch.len + 2, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
 
       // 7-Tier Ancient Stone Stupa Pagoda
       ctx.fillStyle = '#44403c';
@@ -4042,6 +4102,23 @@ export const ZenPlaza: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 10. Bodhi Tree Quick Interaction Button */}
+      {isNearBodhi && currentScene === 'plaza' && (
+        <button
+          onClick={() => setShowBodhiModal(true)}
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-600 to-amber-500 text-stone-950 font-bold shadow-xl border border-amber-300/40 animate-bounce flex items-center gap-2 hover:brightness-110 transition cursor-pointer"
+        >
+          <span>🌳 Gốc Bồ Đề - Treo Lời Nguyện / Chiêm Ngưỡng (Phím B)</span>
+        </button>
+      )}
+
+      {/* Bodhi Tree Wish Modal */}
+      <BodhiTreeModal
+        isOpen={showBodhiModal}
+        onClose={() => setShowBodhiModal(false)}
+        userMerits={localMerits}
+      />
     </div>
   );
 };
