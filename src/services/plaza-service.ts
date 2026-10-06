@@ -37,7 +37,7 @@ export interface ReleasedFishEvent {
   releasedBy: string;
 }
 
-type MoveListener = (id: string, x: number, y: number, vx: number, vy: number, facing: 1 | -1, isMoving: boolean) => void;
+type MoveListener = (id: string, x: number, y: number, vx: number, vy: number, facing: 1 | -1, isMoving: boolean, currentTempleId?: string | null) => void;
 type ActionListener = (id: string, action: StickmanAction) => void;
 type ChatListener = (id: string, name: string, text: string) => void;
 type ListListener = (players: PlazaPlayer[]) => void;
@@ -536,10 +536,13 @@ export class PlazaService {
           p.vy = msg.vy;
           p.facing = msg.facing;
           p.isMoving = msg.isMoving;
+          if (msg.currentTempleId !== undefined) {
+            p.currentTempleId = msg.currentTempleId;
+          }
         }
         // Direct move notification to canvas without full React re-render!
         for (const cb of this.moveListeners) {
-          cb(msg.id, msg.x, msg.y, msg.vx, msg.vy, msg.facing, msg.isMoving);
+          cb(msg.id, msg.x, msg.y, msg.vx, msg.vy, msg.facing, msg.isMoving, msg.currentTempleId);
         }
       }
     } else if (msg.type === 'player_action') {
@@ -1031,7 +1034,7 @@ export class PlazaService {
   }
 
   // Update local player position & broadcast
-  public sendLocalMove(x: number, y: number, vx: number, vy: number, facing: 1 | -1, isMoving: boolean) {
+  public sendLocalMove(x: number, y: number, vx: number, vy: number, facing: 1 | -1, isMoving: boolean, currentTempleId?: string | null) {
     const local = this.players.get(this.localProfile.id);
     if (!local) return;
 
@@ -1041,6 +1044,9 @@ export class PlazaService {
     local.vy = vy;
     local.facing = facing;
     local.isMoving = isMoving;
+    if (currentTempleId !== undefined) {
+      local.currentTempleId = currentTempleId;
+    }
 
     this.sendNetworkMessage({
       type: 'move',
@@ -1051,6 +1057,7 @@ export class PlazaService {
       vy,
       facing,
       isMoving,
+      currentTempleId: local.currentTempleId ?? null,
     });
   }
 

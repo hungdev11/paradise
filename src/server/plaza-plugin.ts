@@ -22,6 +22,7 @@ export interface PlazaPlayerState {
   merits: number;
   defeatUntil?: number;
   lastMokugyoTap?: number;
+  currentTempleId?: string | null;
 }
 
 export interface ServerMeritOrb {
@@ -151,6 +152,7 @@ export function zenPlazaWsPlugin(): Plugin {
                 merits: initialMerits,
                 weapon: msg.player?.weapon || null,
                 defeatUntil: msg.player?.defeatUntil || 0,
+                currentTempleId: msg.player?.currentTempleId ?? null,
                 lastSeen: Date.now(),
               };
               players.set(pid, { ws, state: playerState });
@@ -214,6 +216,9 @@ export function zenPlazaWsPlugin(): Plugin {
                 p.state.vy = msg.vy;
                 p.state.facing = msg.facing;
                 p.state.isMoving = msg.isMoving;
+                if (msg.currentTempleId !== undefined) {
+                  p.state.currentTempleId = msg.currentTempleId;
+                }
                 p.state.lastSeen = Date.now();
 
                 const movePayload = JSON.stringify({
@@ -225,6 +230,7 @@ export function zenPlazaWsPlugin(): Plugin {
                   vy: msg.vy,
                   facing: msg.facing,
                   isMoving: msg.isMoving,
+                  currentTempleId: p.state.currentTempleId ?? null,
                 });
                 for (const [id, client] of players.entries()) {
                   if (id !== currentId && client.ws.readyState === WebSocket.OPEN) {

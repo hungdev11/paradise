@@ -82,6 +82,7 @@ interface VisualEntity {
   merits: number;
   defeatUntil?: number;
   socialStatus?: PlayerSocialStatus;
+  currentTempleId?: string | null;
 }
 
 interface FloatingText {
@@ -146,7 +147,8 @@ function drawTempleInterior(
   time: number,
   walkCycle: number,
   mokugyoHits: number,
-  floatingTexts: FloatingText[]
+  floatingTexts: FloatingText[],
+  indoorPlayers: VisualEntity[]
 ) {
   // 1. Interior Wall & Floor
   ctx.fillStyle = '#17110e';
@@ -358,91 +360,193 @@ function drawTempleInterior(
   ctx.fillStyle = '#fef08a';
   ctx.fillText('🚪 CỬA RA SÂN CHÙA', doorX, doorY);
 
-  // 8. Draw Player Stickman in Interior
-  const isMoving = Math.abs(player.vx) > 0.05 || Math.abs(player.vy) > 0.05;
-  const isPraying = !isMoving && player.y > 440 && player.y < 510 && Math.abs(player.x - width / 2) < 160;
+  // 8. Draw All Players present inside this Temple!
+  const sortedPlayers = [...indoorPlayers].sort((a, b) => {
+    const yA = a.isLocal ? player.y : a.currentY;
+    const yB = b.isLocal ? player.y : b.currentY;
+    return yA - yB;
+  });
 
-  // Player shadow
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-  ctx.beginPath();
-  ctx.ellipse(player.x, player.y + 2, 16, 7, 0, 0, Math.PI * 2);
-  ctx.fill();
+  for (const p of sortedPlayers) {
+    const px = p.isLocal ? player.x : p.currentX;
+    const py = p.isLocal ? player.y : p.currentY;
+    const pvx = p.isLocal ? player.vx : p.vx;
+    const pvy = p.isLocal ? player.vy : p.vy;
+    const facing = p.isLocal ? player.facing : p.facing;
+    const isMoving = Math.abs(pvx) > 0.05 || Math.abs(pvy) > 0.05 || (p.isMoving && !p.isLocal);
+    const isPraying = p.action === 'pray' || (!isMoving && py > 440 && py < 510 && Math.abs(px - width / 2) < 160);
+    const isSitting = p.action === 'sit';
+    const isBowing = p.action === 'bow';
+    const pColor = p.color || (p.isLocal ? profile.color : '#f59e0b') || '#f59e0b';
+    const pAvatar = p.avatar || (p.isLocal ? profile.avatar : '🧘') || '🧘';
+    const pName = p.name || (p.isLocal ? profile.name : 'Đạo Hữu') || 'Đạo Hữu';
+    const pMerits = p.merits ?? 5;
 
-  // Aura if praying on mats
-  if (isPraying) {
-    const auraPulse = Math.sin(time * 0.005) * 6;
-    const auraGrad = ctx.createRadialGradient(player.x, player.y - 30, 8, player.x, player.y - 30, 48 + auraPulse);
-    auraGrad.addColorStop(0, 'rgba(251, 191, 36, 0.6)');
-    auraGrad.addColorStop(0.7, 'rgba(245, 158, 11, 0.2)');
-    auraGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
-    ctx.fillStyle = auraGrad;
+    // Player shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.beginPath();
-    ctx.arc(player.x, player.y - 30, 48 + auraPulse, 0, Math.PI * 2);
+    ctx.ellipse(px, py + 2, 16, 7, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Aura if praying on mats or sitting in meditation
+    if (isPraying || isSitting) {
+      const auraPulse = Math.sin(time * 0.005) * 6;
+      const auraGrad = ctx.createRadialGradient(px, py - 30, 8, px, py - 30, 48 + auraPulse);
+      auraGrad.addColorStop(0, 'rgba(251, 191, 36, 0.6)');
+      auraGrad.addColorStop(0.7, 'rgba(245, 158, 11, 0.2)');
+      auraGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+      ctx.fillStyle = auraGrad;
+      ctx.beginPath();
+      ctx.arc(px, py - 30, 48 + auraPulse, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Stickman lines
+    ctx.strokeStyle = pColor;
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const neckY = py - (isSitting ? 26 : 34);
+    const pelvisY = py - (isSitting ? 12 : 18);
+
+    ctx.beginPath();
+    ctx.moveTo(px, neckY);
+    ctx.lineTo(px, pelvisY);
+    ctx.stroke();
+
+    // Legs
+    if (isSitting) {
+      ctx.beginPath();
+      ctx.moveTo(px - 14, py - 2);
+      ctx.quadraticCurveTo(px, py + 4, px + 14, py - 2);
+      ctx.stroke();
+    } else {
+      const legPhase = isMoving ? Math.sin(walkCycle + (p.isLocal ? 0 : px * 0.1)) * 12 : 0;
+      ctx.beginPath();
+      ctx.moveTo(px, pelvisY);
+      ctx.lineTo(px + legPhase * facing, py);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(px, pelvisY);
+      ctx.lineTo(px - legPhase * facing, py);
+      ctx.stroke();
+    }
+
+    // Arms
+    if (isPraying) {
+      ctx.beginPath();
+      ctx.moveTo(px, neckY + 4);
+      ctx.lineTo(px + facing * 9, neckY + 10);
+      ctx.lineTo(px + facing * 7, neckY + 6);
+      ctx.stroke();
+    } else if (isBowing) {
+      ctx.beginPath();
+      ctx.moveTo(px, neckY + 4);
+      ctx.lineTo(px + facing * 12, neckY + 18);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(px, neckY + 4);
+      ctx.lineTo(px + facing * 11, neckY + 16);
+      ctx.stroke();
+    }
+
+    // Head
+    const headCenterY = isSitting ? py - 40 : py - 48;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(px, headCenterY, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = pColor;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Avatar emoji
+    ctx.font = '15px serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(pAvatar, px, headCenterY + 5);
+
+    // Hat
+    if (p.hat === 'non_la') {
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.moveTo(px, headCenterY - 26);
+      ctx.lineTo(px - 18, headCenterY - 10);
+      ctx.lineTo(px + 18, headCenterY - 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    } else if (p.hat === 'halo') {
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(px, headCenterY - 20, 16, 5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (p.hat === 'lotus') {
+      ctx.font = '14px serif';
+      ctx.fillText('🪷', px, headCenterY - 14);
+    }
+
+    // Social status visual effects (tea steam or lotus ring)
+    if (p.socialStatus && p.socialStatus.expiresAt > Date.now()) {
+      if (p.socialStatus.type === 'offer_tea') {
+        ctx.font = '16px serif';
+        ctx.fillText('🍵', px + facing * 16, py - 32);
+      } else if (p.socialStatus.type === 'gift_lotus') {
+        ctx.font = '16px serif';
+        ctx.fillText('🪷', px, headCenterY - 24);
+      }
+    }
+
+    // Name Tag & Merit Tag Below Feet (Hiển thị tên dưới chân)
+    const feetY = py + 14;
+    ctx.font = 'bold 10px system-ui';
+    const nameMetrics = ctx.measureText(pName);
+    const tagW = Math.max(nameMetrics.width + 14, 52);
+    ctx.fillStyle = 'rgba(15, 12, 10, 0.85)';
+    ctx.beginPath();
+    ctx.roundRect(px - tagW / 2, feetY - 8, tagW, 16, 6);
+    ctx.fill();
+    ctx.strokeStyle = p.isLocal ? '#fbbf24' : 'rgba(245, 158, 11, 0.4)';
+    ctx.lineWidth = p.isLocal ? 1.5 : 1;
+    ctx.stroke();
+
+    ctx.fillStyle = p.isLocal ? '#fef08a' : '#f5f5f4';
+    ctx.textAlign = 'center';
+    ctx.fillText(pName, px, feetY + 4);
+
+    // Merits badge below name
+    const meritY = feetY + 16;
+    ctx.font = '9px monospace';
+    ctx.fillStyle = pMerits < 0 ? '#fca5a5' : '#86efac';
+    ctx.fillText(`✨ ${pMerits} Công Đức`, px, meritY + 3);
+
+    // Speech bubble above head if speaking
+    if (p.chatText && p.chatTime && Date.now() - p.chatTime < 5500) {
+      const bubbleY = headCenterY - 24;
+      ctx.font = '11px serif';
+      const m = ctx.measureText(p.chatText);
+      const bw = m.width + 16;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.roundRect(px - bw / 2, bubbleY - 10, bw, 20, 10);
+      ctx.fill();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = '#1c1917';
+      ctx.fillText(p.chatText, px, bubbleY + 4);
+    }
   }
 
-  // Stickman lines
-  ctx.strokeStyle = profile.color || '#f59e0b';
-  ctx.lineWidth = 3.5;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  const neckY = player.y - 34;
-  const pelvisY = player.y - 18;
-
-  ctx.beginPath();
-  ctx.moveTo(player.x, neckY);
-  ctx.lineTo(player.x, pelvisY);
-  ctx.stroke();
-
-  // Legs
-  const legPhase = isMoving ? Math.sin(walkCycle) * 12 : 0;
-  ctx.beginPath();
-  ctx.moveTo(player.x, pelvisY);
-  ctx.lineTo(player.x + legPhase * player.facing, player.y);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(player.x, pelvisY);
-  ctx.lineTo(player.x - legPhase * player.facing, player.y);
-  ctx.stroke();
-
-  // Arms
-  if (isPraying) {
-    ctx.beginPath();
-    ctx.moveTo(player.x, neckY + 4);
-    ctx.lineTo(player.x + player.facing * 9, neckY + 10);
-    ctx.lineTo(player.x + player.facing * 7, neckY + 6);
-    ctx.stroke();
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(player.x, neckY + 4);
-    ctx.lineTo(player.x + player.facing * 11, neckY + 16);
-    ctx.stroke();
-  }
-
-  // Head
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.arc(player.x, player.y - 48, 14, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = profile.color || '#f59e0b';
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
-
-  // Avatar emoji
-  ctx.font = '15px serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(profile.avatar || '🧘', player.x, player.y - 43);
-
-  // Name Tag
-  ctx.font = 'bold 11px system-ui';
-  ctx.fillStyle = '#fef08a';
-  ctx.fillText(profile.name, player.x, player.y - 68);
-
-  // Floating text inside temple
+  // 9. Floating text inside temple
   for (const ft of floatingTexts) {
     ctx.font = 'bold 12px serif';
     ctx.fillStyle = ft.color;
+    ctx.textAlign = 'center';
     ctx.fillText(ft.text, ft.x, ft.y);
   }
 }
@@ -708,7 +812,7 @@ export const ZenPlaza: React.FC = () => {
     }));
 
     // 1. Remote Player Move Listener: Smooth position update without React re-render
-    const unsubMove = plazaService.onPlayerMove((id, x, y, vx, vy, facing, isMoving) => {
+    const unsubMove = plazaService.onPlayerMove((id, x, y, vx, vy, facing, isMoving, currentTempleId) => {
       let vp = visualPlayersRef.current.get(id);
       if (vp) {
         vp.targetX = x;
@@ -717,6 +821,9 @@ export const ZenPlaza: React.FC = () => {
         vp.vy = vy;
         vp.facing = facing;
         vp.isMoving = isMoving;
+        if (currentTempleId !== undefined) {
+          vp.currentTempleId = currentTempleId;
+        }
       }
     });
 
@@ -797,6 +904,8 @@ export const ZenPlaza: React.FC = () => {
             merits: p.merits ?? 5,
             weapon: p.weapon || null,
             defeatUntil: p.defeatUntil || 0,
+            socialStatus: p.socialStatus,
+            currentTempleId: p.currentTempleId ?? null,
           });
         } else {
           vp.name = p.name;
@@ -806,6 +915,8 @@ export const ZenPlaza: React.FC = () => {
           vp.merits = p.merits ?? 5;
           vp.weapon = p.weapon || null;
           vp.defeatUntil = p.defeatUntil || 0;
+          vp.socialStatus = p.socialStatus;
+          vp.currentTempleId = p.currentTempleId ?? null;
           if (p.chatText && p.chatTime) {
             vp.chatText = p.chatText;
             vp.chatTime = p.chatTime;
@@ -1517,23 +1628,49 @@ export const ZenPlaza: React.FC = () => {
     lastNearIndoorExitRef.current = true;
     setNearIndoorExit(true);
     audioEngine.playTempleBell();
+
+    const myProfile = plazaService.getProfile();
+    const myVp = visualPlayersRef.current.get(myProfile.id);
+    if (myVp) {
+      myVp.currentTempleId = door.id;
+      myVp.currentX = 550;
+      myVp.currentY = 530;
+      myVp.targetX = 550;
+      myVp.targetY = 530;
+      myVp.vx = 0;
+      myVp.vy = 0;
+    }
+    plazaService.sendLocalMove(550, 530, 0, 0, 1, false, door.id);
   }, []);
 
   // Exit Temple Interior
   const handleExitTemple = useCallback(() => {
     const temple = activeTempleRef.current || activeTemple;
-    if (temple) {
-      localPosRef.current.x = temple.returnX;
-      localPosRef.current.y = temple.returnY;
-      localPosRef.current.vx = 0;
-      localPosRef.current.vy = 0;
-      targetClickRef.current = null;
-    }
+    const retX = temple ? temple.returnX : 1800;
+    const retY = temple ? temple.returnY : 420;
+    localPosRef.current.x = retX;
+    localPosRef.current.y = retY;
+    localPosRef.current.vx = 0;
+    localPosRef.current.vy = 0;
+    targetClickRef.current = null;
     lastNearIndoorExitRef.current = false;
     setNearIndoorExit(false);
     currentSceneRef.current = 'plaza';
     setCurrentScene('plaza');
     audioEngine.playWoodenFish();
+
+    const myProfile = plazaService.getProfile();
+    const myVp = visualPlayersRef.current.get(myProfile.id);
+    if (myVp) {
+      myVp.currentTempleId = null;
+      myVp.currentX = retX;
+      myVp.currentY = retY;
+      myVp.targetX = retX;
+      myVp.targetY = retY;
+      myVp.vx = 0;
+      myVp.vy = 0;
+    }
+    plazaService.sendLocalMove(retX, retY, 0, 0, 1, false, null);
   }, [activeTemple]);
 
   // Release Fish at lake
@@ -1741,6 +1878,26 @@ export const ZenPlaza: React.FC = () => {
         return;
       }
 
+      // Check if clicked directly on an indoor remote player to open social interaction menu!
+      const activeTId = activeTempleRef.current?.id || activeTemple?.id || 'dai_hung';
+      for (const [id, vp] of visualPlayersRef.current.entries()) {
+        if (!vp.isLocal && vp.currentTempleId === activeTId) {
+          const d = Math.hypot(vp.currentX - screenX, vp.currentY - screenY);
+          if (d < 38) {
+            setSelectedSocialPlayer({
+              id: vp.id,
+              name: vp.name,
+              merits: vp.merits,
+              avatar: vp.avatar,
+              color: vp.color,
+              screenX: vp.currentX,
+              screenY: vp.currentY,
+            });
+            return;
+          }
+        }
+      }
+
       // If currently meditating or kneeling inside temple, cannot move until finished
       const myProfile = plazaService.getProfile();
       const myVp = visualPlayersRef.current.get(myProfile.id);
@@ -1878,6 +2035,53 @@ export const ZenPlaza: React.FC = () => {
         indoorPosRef.current.x = Math.max(140, Math.min(canvas.width - 140, indoorPosRef.current.x));
         indoorPosRef.current.y = Math.max(220, Math.min(canvas.height - 45, indoorPosRef.current.y));
 
+        const activeTId = activeTempleRef.current?.id || activeTemple?.id || 'dai_hung';
+
+        // Update local player visual entity
+        if (myVp) {
+          myVp.currentX = indoorPosRef.current.x;
+          myVp.currentY = indoorPosRef.current.y;
+          myVp.vx = indoorPosRef.current.vx;
+          myVp.vy = indoorPosRef.current.vy;
+          myVp.facing = indoorPosRef.current.facing;
+          myVp.isMoving = isIndoorMoving;
+          myVp.currentTempleId = activeTId;
+        }
+
+        // Broadcast indoor movement to peers in same temple
+        if (isIndoorMoving || Math.floor(time) % 25 === 0) {
+          plazaService.sendLocalMove(
+            indoorPosRef.current.x,
+            indoorPosRef.current.y,
+            indoorPosRef.current.vx,
+            indoorPosRef.current.vy,
+            indoorPosRef.current.facing,
+            isIndoorMoving,
+            activeTId
+          );
+        }
+
+        // Smoothly interpolate positions of other players in this temple
+        for (const vp of visualPlayersRef.current.values()) {
+          if (!vp.isLocal && vp.currentTempleId === activeTId) {
+            vp.currentX += (vp.targetX - vp.currentX) * 0.18;
+            vp.currentY += (vp.targetY - vp.currentY) * 0.18;
+          }
+        }
+
+        // Check proximity to indoor exit door
+        const distToExit = Math.hypot(indoorPosRef.current.x - canvas.width / 2, indoorPosRef.current.y - (canvas.height - 40));
+        const nearExit = distToExit <= 65;
+        if (nearExit !== lastNearIndoorExitRef.current) {
+          lastNearIndoorExitRef.current = nearExit;
+          setNearIndoorExit(nearExit);
+        }
+
+        // Get all players present in this temple
+        const indoorPlayers = Array.from(visualPlayersRef.current.values()).filter(
+          (p) => p.currentTempleId === activeTId || (p.isLocal && currentSceneRef.current === 'temple_interior')
+        );
+
         ctx.save();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawTempleInterior(
@@ -1890,7 +2094,8 @@ export const ZenPlaza: React.FC = () => {
           time,
           walkCycle,
           indoorMokugyoHitsRef.current,
-          floatingTextsRef.current
+          floatingTextsRef.current,
+          indoorPlayers
         );
 
         // Draw click ripples in temple interior
@@ -2945,7 +3150,8 @@ export const ZenPlaza: React.FC = () => {
       }
 
       // --- 5. DRAW ALL STICKMEN & GROUP MEDITATION RESONANCE IN WORLD COORDINATES ---
-      const renderList = Array.from(visualPlayersRef.current.values());
+      // Chỉ vẽ những người đang ở ngoài sảnh sân chùa (những ai vào đền sẽ hiển thị bên trong đền)
+      const renderList = Array.from(visualPlayersRef.current.values()).filter((p) => !p.currentTempleId);
       renderList.sort((a, b) => a.currentY - b.currentY);
 
       // --- GROUP MEDITATION RESONANCE MANDALAS ---

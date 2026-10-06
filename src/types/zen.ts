@@ -174,6 +174,7 @@ export interface PlazaPlayer {
   defeatUntil?: number;
   socialStatus?: PlayerSocialStatus;
   inMeditationCluster?: boolean;
+  currentTempleId?: string | null;
 }
 
 export type FishTypeId = 'red_carp' | 'goldfish' | 'koi' | 'dragon_fish';
