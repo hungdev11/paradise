@@ -748,7 +748,6 @@ export class PlazaService {
         }
       }
     }
-    }
   }
 
   // Loot a Merit Orb / Item on Map

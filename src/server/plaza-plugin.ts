@@ -165,7 +165,6 @@ export function zenPlazaWsPlugin(): Plugin {
                 orbs: allOrbs,
                 wishes: allWishes
               }));
-              }));
 
               // Broadcast new player to all other connected peers
               const joinPayload = JSON.stringify({ type: 'player_joined', player: playerState });
